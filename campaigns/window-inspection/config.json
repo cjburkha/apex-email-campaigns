@@ -1,0 +1,11 @@
+{
+  "id": "window-inspection-apr-2026",
+  "name": "Window Inspection Spring 2026",
+  "subject": "Window Inspection for {{ city }} Homeowners",
+  "from_name": "Apex Energy Group",
+  "from_email": "Chris.burkhardt@apexenergygroup.com",
+  "reply_to": "Chris.burkhardt@apexenergygroup.com",
+  "utm_source": "email",
+  "utm_medium": "email",
+  "utm_campaign": "window-inspection-spring-2026"
+}

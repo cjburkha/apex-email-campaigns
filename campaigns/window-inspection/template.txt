@@ -1,0 +1,32 @@
+Hey {{ first_name }},
+
+I know it has been a while since we had an appointment scheduled with you
+to help you with your window and door problems, so I wanted to check in.
+
+A lot of homeowners we meet end up coming back months later when the timing
+feels right, and I figured that might be the case for you too.
+
+If you're still considering updates, we'd be happy to take another look and
+provide updated options and pricing!
+
+To make it worth your while, we're also including an additional 5% off for
+projects like yours on top of any current offers.
+
+No pressure at all. I just wanted to make sure you knew this option was
+available in case now is a better time.
+
+WHY APEX ENERGY GROUP?
+
+  ✓ Free in-home consultation — we come to you
+  ✓ No high-pressure sales tactics, ever
+  ✓ Backed by Great Day Improvements, one of America's top home improvement brands
+  ✓ Financing options available — no large upfront cost
+
+Schedule your free inspection here:
+https://windowsbyburkhardt.com/#schedule
+
+──────────────────────────────────────────────────────────────
+Apex Energy Group
+
+You're receiving this because your address is in our {{ city }} service area.
+To stop receiving emails, reply with "unsubscribe".

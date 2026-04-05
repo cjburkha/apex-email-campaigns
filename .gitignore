@@ -1,0 +1,10 @@
+.env
+db/
+data/*.csv
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.DS_Store
+.claude/
