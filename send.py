@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-send.py — Send a campaign to recipients from a CSV.
+send.py — Send a campaign to leads selected by a SQL query.
 
 Usage:
-    python send.py --campaign window-inspection --csv data/leads.csv
-    python send.py --campaign window-inspection --csv data/leads.csv --dry-run
-    python send.py --campaign window-inspection --csv data/leads.csv --limit 5
+    python send.py --campaign window-inspection --query "SELECT * FROM leads WHERE state='WI'"
+    python send.py --campaign window-inspection --query "SELECT * FROM leads WHERE state='WI'" --dry-run
+    python send.py --campaign window-inspection --query "SELECT * FROM leads WHERE state='WI'" --limit 5
 
-CSV required columns : first_name, email
-CSV optional columns : last_name, city, (any extra become template variables)
+The query must SELECT from the leads table (or any query that returns leads columns).
+Required lead columns : first_name, email
+Useful lead columns   : last_name, city  (used as template variables)
+
+Each (campaign, lead) pair is tracked in campaign_sends. Running the same command
+twice will skip leads already queued/sent — safe to re-run after a partial failure.
 """
 
 import json
@@ -20,7 +24,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import boto3
 import click
-import pandas as pd
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
 
@@ -49,16 +52,16 @@ def _add_utm(html: str, utm: dict) -> str:
 @click.command()
 @click.option("--campaign", required=True,
               help="Campaign directory name under campaigns/")
-@click.option("--csv", "csv_path", required=True, type=click.Path(exists=True),
-              help="CSV file with recipient list")
+@click.option("--query", "sql_query", default=None,
+              help="SQL SELECT query against the leads table (prompted if omitted)")
 @click.option("--dry-run", is_flag=True,
               help="Render & preview every email without sending")
 @click.option("--rate", default=14, type=float, show_default=True,
               help="Emails per second (14 = SES production max, 1 = sandbox)")
 @click.option("--limit", default=None, type=int,
-              help="Send to first N recipients only (handy for test batches)")
-def send(campaign: str, csv_path: str, dry_run: bool, rate: float, limit: int):
-    """Send a campaign to all queued recipients in a CSV."""
+              help="Cap the number of leads processed (handy for test batches)")
+def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
+    """Send a campaign to leads selected by a SQL query."""
     init_db()
 
     # ── load campaign config ───────────────────────────────────────────────────
@@ -75,62 +78,86 @@ def send(campaign: str, csv_path: str, dry_run: bool, rate: float, limit: int):
     html_tmpl = env.get_template("template.html")
     txt_tmpl  = env.get_template("template.txt")
 
-    # ── load + validate CSV ───────────────────────────────────────────────────
-    df = pd.read_csv(csv_path)
-    df.columns = df.columns.str.lower().str.strip()
-    missing = {"first_name", "email"} - set(df.columns)
-    if missing:
-        raise click.ClickException(f"CSV missing required columns: {missing}")
-    if limit:
-        df = df.head(limit)
+    # ── prompt for query if not provided ─────────────────────────────────────
+    if not sql_query:
+        click.echo("Enter a SQL query to select leads (e.g. SELECT * FROM leads WHERE state='WI' LIMIT 50):")
+        sql_query = click.prompt("Query")
 
-    # ── upsert campaign + recipients into DB (idempotent) ────────────────────
+    # ── run lead query ────────────────────────────────────────────────────────
     conn = get_conn()
+    try:
+        leads = conn.execute(sql_query).fetchall()
+    except Exception as exc:
+        raise click.ClickException(f"Query failed: {exc}")
+
+    if not leads:
+        click.secho("No leads returned by query.", fg="yellow")
+        conn.close()
+        return
+
+    if limit:
+        leads = leads[:limit]
+
+    # Validate required columns
+    lead_keys = leads[0].keys()
+    missing = {"first_name", "email"} - set(lead_keys)
+    if missing:
+        raise click.ClickException(f"Query results missing required columns: {missing}")
+
+    # ── upsert campaign into DB ───────────────────────────────────────────────
     conn.execute(
-        "INSERT OR IGNORE INTO campaigns "
-        "(id, name, subject, from_email, from_name) VALUES (?,?,?,?,?)",
+        "INSERT INTO campaigns "
+        "(id, name, subject, from_email, from_name) VALUES (%s,%s,%s,%s,%s) "
+        "ON CONFLICT (id) DO NOTHING",
         (campaign_id, config["name"], config["subject"],
          config["from_email"], config["from_name"])
     )
-    for row in df.to_dict("records"):
-        extra = {k: v for k, v in row.items()
-                 if k not in ("first_name", "last_name", "email", "city")}
-        conn.execute(
-            "INSERT OR IGNORE INTO recipients "
-            "(campaign_id, first_name, last_name, email, city, extra_vars) "
-            "VALUES (?,?,?,?,?,?)",
-            (
-                campaign_id,
-                str(row.get("first_name", "")).strip(),
-                str(row.get("last_name", "")).strip() if "last_name" in row else None,
-                str(row["email"]).strip().lower(),
-                str(row.get("city", "")).strip() if "city" in row else None,
-                json.dumps(extra) if extra else None,
-            )
+
+    # ── enroll leads into campaign_sends (idempotent) ────────────────────────
+    new_count = 0
+    for lead in leads:
+        result = conn.execute(
+            "INSERT INTO campaign_sends (campaign_id, lead_id) VALUES (%s,%s) "
+            "ON CONFLICT (campaign_id, lead_id) DO NOTHING",
+            (campaign_id, lead["id"])
         )
+        if result.rowcount:
+            new_count += 1
     conn.commit()
 
-    # ── fetch only recipients not yet sent ───────────────────────────────────
-    pending = conn.execute(
-        "SELECT * FROM recipients WHERE campaign_id=? AND status='queued'",
+    already = len(leads) - new_count
+    if already:
+        click.echo(f"  ℹ  {already} lead(s) already enrolled in this campaign — skipped")
+
+    # ── fetch only queued sends ───────────────────────────────────────────────
+    pending_rows = conn.execute(
+        """
+        SELECT cs.id as send_id, cs.lead_id,
+               l.first_name, l.last_name, l.email, l.city,
+               l.state, l.postal_code, l.phone_primary
+        FROM campaign_sends cs
+        JOIN leads l ON l.id = cs.lead_id
+        WHERE cs.campaign_id = %s AND cs.status = 'queued'
+        """,
         (campaign_id,)
     ).fetchall()
 
-    total = len(pending)
+    total = len(pending_rows)
     click.echo(f"\n📧  {config['name']}")
     click.echo(f"    From  : {config['from_name']} <{config['from_email']}>")
-    click.echo(f"    Queue : {total} recipients to send")
+    click.echo(f"    Query : {sql_query[:80]}{'…' if len(sql_query) > 80 else ''}")
+    click.echo(f"    Queue : {total} recipient(s) to send")
     click.echo(f"    Mode  : {'⚠️  DRY RUN — nothing will be sent' if dry_run else '🚀 LIVE'}\n")
 
     if total == 0:
-        click.secho("✅  Nothing to send — all recipients already processed.", fg="green")
+        click.secho("✅  Nothing to send — all matched leads already processed for this campaign.", fg="green")
         conn.close()
         return
 
     if not dry_run:
         click.confirm(f"Send {total} emails now?", abort=True)
 
-    # ── SES client + config ───────────────────────────────────────────────────
+    # ── SES client ────────────────────────────────────────────────────────────
     ses        = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
     config_set = os.getenv("SES_CONFIG_SET", "apex-campaigns")
     utm_base   = {
@@ -142,15 +169,16 @@ def send(campaign: str, csv_path: str, dry_run: bool, rate: float, limit: int):
     sent = failed = 0
 
     # ── send loop ─────────────────────────────────────────────────────────────
-    for i, r in enumerate(pending, 1):
+    for i, r in enumerate(pending_rows, 1):
         vars = dict(
-            first_name=r["first_name"],
+            first_name=r["first_name"] or "",
             last_name=r["last_name"] or "",
             email=r["email"],
             city=r["city"] or "",
+            state=r["state"] or "",
+            postal_code=r["postal_code"] or "",
+            phone=r["phone_primary"] or "",
         )
-        if r["extra_vars"]:
-            vars.update(json.loads(r["extra_vars"]))
 
         subject = Template(config["subject"]).render(**vars)
         html    = _add_utm(html_tmpl.render(**vars), utm_base)
@@ -187,10 +215,10 @@ def send(campaign: str, csv_path: str, dry_run: bool, rate: float, limit: int):
                 ConfigurationSetName=config_set,
             )
             conn.execute(
-                "UPDATE recipients "
-                "SET status='sent', message_id=?, sent_at=datetime('now') "
-                "WHERE id=?",
-                (resp["MessageId"], r["id"])
+                "UPDATE campaign_sends "
+                "SET status='sent', message_id=%s, sent_at=NOW() "
+                "WHERE id=%s",
+                (resp["MessageId"], r["send_id"])
             )
             conn.commit()
             sent += 1
@@ -198,8 +226,8 @@ def send(campaign: str, csv_path: str, dry_run: bool, rate: float, limit: int):
 
         except Exception as exc:
             conn.execute(
-                "UPDATE recipients SET status='failed', failed_reason=? WHERE id=?",
-                (str(exc), r["id"])
+                "UPDATE campaign_sends SET status='failed', failed_reason=%s WHERE id=%s",
+                (str(exc), r["send_id"])
             )
             conn.commit()
             failed += 1

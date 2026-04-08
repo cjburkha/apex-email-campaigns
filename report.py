@@ -43,7 +43,7 @@ def report(campaign: str, no_sync: bool):
                 click.secho(f"  ↻  Synced {n} event(s) from SES\n", fg="cyan")
         else:
             click.secho("  ⚠  SES_EVENTS_QUEUE_URL not set, skipping sync\n", fg="yellow")
-    where = "WHERE r.campaign_id = ?" if campaign else ""
+    where = "WHERE cs.campaign_id = %s" if campaign else ""
     params = (campaign,) if campaign else ()
 
     rows = conn.execute(f"""
@@ -52,17 +52,17 @@ def report(campaign: str, no_sync: bool):
             c.name,
             c.from_email,
             c.created_at,
-            COUNT(*)                                    AS total,
-            SUM(r.status != 'queued')                   AS sent,
-            SUM(r.status = 'delivered')                 AS delivered,
-            SUM(r.opened_at  IS NOT NULL)               AS opened,
-            SUM(r.clicked_at IS NOT NULL)               AS clicked,
-            SUM(r.status = 'bounced')                   AS bounced,
-            SUM(r.status = 'complained')                AS complained,
-            SUM(r.status = 'failed')                    AS failed,
-            SUM(r.status = 'queued')                    AS queued
+            COUNT(*)                                                 AS total,
+            COUNT(*) FILTER (WHERE cs.status != 'queued')            AS sent,
+            COUNT(*) FILTER (WHERE cs.status = 'delivered')          AS delivered,
+            COUNT(*) FILTER (WHERE cs.opened_at  IS NOT NULL)        AS opened,
+            COUNT(*) FILTER (WHERE cs.clicked_at IS NOT NULL)        AS clicked,
+            COUNT(*) FILTER (WHERE cs.status = 'bounced')            AS bounced,
+            COUNT(*) FILTER (WHERE cs.status = 'complained')         AS complained,
+            COUNT(*) FILTER (WHERE cs.status = 'failed')             AS failed,
+            COUNT(*) FILTER (WHERE cs.status = 'queued')             AS queued
         FROM campaigns c
-        JOIN recipients r ON r.campaign_id = c.id
+        JOIN campaign_sends cs ON cs.campaign_id = c.id
         {where}
         GROUP BY c.id
         ORDER BY c.created_at DESC

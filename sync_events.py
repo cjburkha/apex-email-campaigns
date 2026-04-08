@@ -81,9 +81,9 @@ def _process_batch(sqs, queue_url: str, conn) -> int:
 
             new_status, ts_col = EVENT_MAP[event_type]
 
-            # Build UPDATE statement dynamically
+            # Look up the send record in campaign_sends by SES message id
             row = conn.execute(
-                "SELECT id, status FROM recipients WHERE message_id=?",
+                "SELECT id, status FROM campaign_sends WHERE message_id = %s",
                 (message_id,)
             ).fetchone()
 
@@ -96,23 +96,23 @@ def _process_batch(sqs, queue_url: str, conn) -> int:
             # Only upgrade status — never downgrade (e.g. a late 'sent' event
             # must not overwrite a 'delivered' status)
             if new_status and _rank(new_status) > _rank(row["status"]):
-                sets.append("status=?")
+                sets.append("status=%s")
                 params.append(new_status)
 
             # Stamp timestamp only on first occurrence (COALESCE keeps first)
             if ts_col:
-                sets.append(f'{ts_col}=COALESCE({ts_col}, datetime("now"))')
+                sets.append(f'{ts_col}=COALESCE({ts_col}, NOW())')
 
             if event_type == "Bounce":
                 bounce_type = (event.get("bounce") or {}).get("bounceType")
                 if bounce_type:
-                    sets.append("bounce_type=?")
+                    sets.append("bounce_type=%s")
                     params.append(bounce_type)
 
             if sets:
                 params.append(row["id"])
                 conn.execute(
-                    f'UPDATE recipients SET {", ".join(sets)} WHERE id=?', params
+                    f'UPDATE campaign_sends SET {", ".join(sets)} WHERE id=%s', params
                 )
                 conn.commit()
                 updated += 1

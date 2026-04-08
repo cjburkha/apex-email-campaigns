@@ -8,3 +8,5 @@ venv/
 .venv/
 .DS_Store
 .claude/
+*.xlsx
+*.xls
