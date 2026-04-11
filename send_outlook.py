@@ -175,12 +175,12 @@ end tell
               help="Render & preview every email without sending")
 @click.option("--limit", default=None, type=int,
               help="Max valid unsent leads to process in this batch")
-@click.option("--backend", default="auto",
-              type=click.Choice(["auto", "applescript", "win32com"], case_sensitive=False),
-              help="Email backend: auto-detect (default), applescript (macOS), win32com (Windows)")
-def send(campaign: str, sql_query: str, dry_run: bool, limit: int, backend: str):
+@click.option("--os", "os_flag", default="auto",
+              type=click.Choice(["auto", "mac", "windows"], case_sensitive=False),
+              help="Platform: auto-detect (default), mac, windows")
+def send(campaign: str, sql_query: str, dry_run: bool, limit: int, os_flag: str):
     """Send a campaign via the local Outlook desktop app."""
-    backend = _detect_backend(backend)
+    backend = _detect_backend(os_flag)
     init_db()
 
     # ── load campaign config ───────────────────────────────────────────────────
