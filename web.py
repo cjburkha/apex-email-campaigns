@@ -147,8 +147,8 @@ _PIXEL = base64.b64decode(
 def track_open(campaign_id: str, send_id: int):
     conn = get_conn()
     conn.execute(
-        "UPDATE campaign_sends SET opened_at = datetime('now') "
-        "WHERE id = ? AND campaign_id = ? AND opened_at IS NULL",
+        "UPDATE campaign_sends SET opened_at = NOW() "
+        "WHERE id = %s AND campaign_id = %s AND opened_at IS NULL",
         (send_id, campaign_id),
     )
     conn.commit()
@@ -211,7 +211,7 @@ def index():
 
     rows = conn.execute(
         f"SELECT l.*, ls.name AS status, sf.path AS source_file "
-        f"{join_clause} {where_sql} ORDER BY l.id LIMIT ? OFFSET ?",
+        f"{join_clause} {where_sql} ORDER BY l.id LIMIT %s OFFSET %s",
         params + [PAGE_SIZE, offset]
     ).fetchall()
 
