@@ -37,18 +37,23 @@ load_dotenv()
 # Known typo corrections: bad domain → corrected domain
 _DOMAIN_FIXES = {
     "gmail.comm":   "gmail.com",
+    "gmail.gom":    "gmail.com",
+    "gmail.cmo":    "gmail.com",
     "gamil.com":    "gmail.com",
     "gmal.com":     "gmail.com",
     "gmial.com":    "gmail.com",
     "yahoo.comm":   "yahoo.com",
     "yaho.com":     "yahoo.com",
+    "yahooo.com":   "yahoo.com",
     "hotmail.comm": "hotmail.com",
+    "hotmail.cmo":  "hotmail.com",
     "outloook.com": "outlook.com",
+    "outlok.com":   "outlook.com",
 }
 
 # Domains/patterns that indicate a fake or placeholder email
 _FAKE_PATTERNS = [
-    r"noemail\.",
+    r"noemail",          # noemail anywhere — local or domain
     r"unknownemail\.",
     r"unknown\w*email\.",
     r"@noemail",
@@ -56,7 +61,10 @@ _FAKE_PATTERNS = [
     r"@test\.",
     r"@example\.",
     r"@fake\.",
+    r"@client\.con$",   # no@client.con placeholder
     r"\.comm$",          # catches any .comm not fixed above
+    r"\.con$",           # .con is not a real TLD
+    r"\.gom$",           # .gom typo not caught by domain fixes
 ]
 
 _EMAIL_RE = re.compile(
