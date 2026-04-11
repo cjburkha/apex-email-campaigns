@@ -183,9 +183,15 @@ def _check_outlook_classic():
             continue
     if not outlook_exe:
         raise click.ClickException(
-            "Classic Outlook not found.\n"
-            "The new Outlook app does not support desktop automation.\n"
-            "To fix: open Outlook → toggle 'Try the new Outlook' OFF (top-right corner)."
+            "Classic Outlook (desktop) not found on this machine.\n"
+            "The new Outlook app does not support automation.\n\n"
+            "Options:\n"
+            "  1. If you see a 'Try the new Outlook' toggle in the top-right corner of\n"
+            "     Outlook, turn it OFF to switch back to classic Outlook.\n"
+            "  2. If the toggle is missing or grayed out, your IT admin may have locked\n"
+            "     the setting — contact them to re-enable classic Outlook.\n"
+            "  3. If classic Outlook was never installed, you need a Microsoft 365\n"
+            "     subscription that includes the desktop Office apps."
         )
 
 
