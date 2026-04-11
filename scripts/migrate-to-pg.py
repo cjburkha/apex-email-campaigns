@@ -62,40 +62,35 @@ def migrate(dry_run: bool):
     rows = sqlite.execute("SELECT * FROM source_files ORDER BY id").fetchall()
     click.echo(f"  source_files   : {len(rows):,} rows")
     if not dry_run:
-        for r in rows:
-            cur.execute(
-                "INSERT INTO source_files (id, path) VALUES (%s, %s) ON CONFLICT (path) DO NOTHING",
-                (r["id"], r["path"])
-            )
+        psycopg2.extras.execute_values(cur,
+            "INSERT INTO source_files (id, path) VALUES %s ON CONFLICT (path) DO NOTHING",
+            [(r["id"], r["path"]) for r in rows]
+        )
         cur.execute("SELECT setval('source_files_id_seq', COALESCE(MAX(id), 1)) FROM source_files")
 
     # ── lead_statuses ─────────────────────────────────────────────────────────
     rows = sqlite.execute("SELECT * FROM lead_statuses ORDER BY id").fetchall()
     click.echo(f"  lead_statuses  : {len(rows):,} rows")
     if not dry_run:
-        for r in rows:
-            cur.execute(
-                "INSERT INTO lead_statuses (id, name) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
-                (r["id"], r["name"])
-            )
+        psycopg2.extras.execute_values(cur,
+            "INSERT INTO lead_statuses (id, name) VALUES %s ON CONFLICT (name) DO NOTHING",
+            [(r["id"], r["name"]) for r in rows]
+        )
         cur.execute("SELECT setval('lead_statuses_id_seq', COALESCE(MAX(id), 1)) FROM lead_statuses")
 
     # ── leads ─────────────────────────────────────────────────────────────────
     rows = sqlite.execute("SELECT * FROM leads ORDER BY id").fetchall()
     click.echo(f"  leads          : {len(rows):,} rows")
     if not dry_run:
-        for r in rows:
-            cur.execute("""
-                INSERT INTO leads (
-                    id, source_id, user_id, lead_owner, lead_active, business_name,
-                    import_batch_id, first_name, last_name, email, phone_primary,
-                    phone_secondary, appointment_time, street1, street2, city, state,
-                    postal_code, latitude, longitude, status_id, note, form_data,
-                    updated_at, inserted_at, deleted, source_file_id, test_lead
-                ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
-                ) ON CONFLICT (id) DO NOTHING
-            """, (
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO leads (
+                id, source_id, user_id, lead_owner, lead_active, business_name,
+                import_batch_id, first_name, last_name, email, phone_primary,
+                phone_secondary, appointment_time, street1, street2, city, state,
+                postal_code, latitude, longitude, status_id, note, form_data,
+                updated_at, inserted_at, deleted, source_file_id, test_lead
+            ) VALUES %s ON CONFLICT (id) DO NOTHING
+        """, [(
                 r["id"], r["source_id"], r["user_id"], r["lead_owner"], r["lead_active"],
                 r["business_name"], r["import_batch_id"], r["first_name"], r["last_name"],
                 r["email"], r["phone_primary"], r["phone_secondary"], r["appointment_time"],
@@ -103,7 +98,9 @@ def migrate(dry_run: bool):
                 r["latitude"], r["longitude"], r["status_id"], r["note"], r["form_data"],
                 r["updated_at"], r["inserted_at"], r["deleted"], r["source_file_id"],
                 r["test_lead"]
-            ))
+            ) for r in rows],
+            page_size=500
+        )
         cur.execute("SELECT setval('leads_id_seq', COALESCE(MAX(id), 1)) FROM leads")
 
     # ── campaigns ─────────────────────────────────────────────────────────────
@@ -121,19 +118,18 @@ def migrate(dry_run: bool):
     rows = sqlite.execute("SELECT * FROM campaign_sends ORDER BY id").fetchall()
     click.echo(f"  campaign_sends : {len(rows):,} rows")
     if not dry_run:
-        for r in rows:
-            cur.execute("""
-                INSERT INTO campaign_sends (
-                    id, campaign_id, lead_id, status, message_id,
-                    queued_at, sent_at, delivered_at, opened_at, clicked_at,
-                    bounced_at, failed_reason, bounce_type
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (campaign_id, lead_id) DO NOTHING
-            """, (
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO campaign_sends (
+                id, campaign_id, lead_id, status, message_id,
+                queued_at, sent_at, delivered_at, opened_at, clicked_at,
+                bounced_at, failed_reason, bounce_type
+            ) VALUES %s ON CONFLICT (campaign_id, lead_id) DO NOTHING
+        """, [(
                 r["id"], r["campaign_id"], r["lead_id"], r["status"], r["message_id"],
                 r["queued_at"], r["sent_at"], r["delivered_at"], r["opened_at"], r["clicked_at"],
                 r["bounced_at"], r["failed_reason"], r["bounce_type"]
-            ))
+            ) for r in rows]
+        )
         cur.execute("SELECT setval('campaign_sends_id_seq', COALESCE(MAX(id), 1)) FROM campaign_sends")
 
     if not dry_run:
