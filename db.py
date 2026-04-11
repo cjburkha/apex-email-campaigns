@@ -123,7 +123,8 @@ def migrate_db() -> None:
 
 def init_db() -> None:
     conn = get_conn()
-    conn.executescript("""
+    try:
+      conn.executescript("""
         CREATE TABLE IF NOT EXISTS source_files (
             id    SERIAL PRIMARY KEY,
             path  TEXT   NOT NULL UNIQUE
@@ -196,4 +197,14 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_cs_campaign_status
             ON campaign_sends(campaign_id, status)
     """)
+    except Exception as exc:
+        # Regular app users (cburkhardt, mgeary) don't have CREATE on the schema.
+        # That's fine — the schema was already created by the admin during setup.
+        # Verify the critical tables exist; if so, swallow the error and continue.
+        if "permission denied" in str(exc).lower() or "insufficient_privilege" in str(exc).lower():
+            conn._conn.rollback()   # clear the aborted transaction first
+            cur = conn._conn.cursor()
+            cur.execute("SELECT 1 FROM leads LIMIT 1")  # sanity check tables exist
+        else:
+            raise
     conn.close()

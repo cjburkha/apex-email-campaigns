@@ -215,6 +215,17 @@ def send_via_win32com(to_email: str, to_name: str, subject: str, html_body: str)
     mail.Send()
 
 
+def _detect_backend(os_flag: str) -> str:
+    """Return 'applescript' or 'win32com' based on --os flag or auto-detection."""
+    if os_flag == "mac":
+        return "applescript"
+    if os_flag == "windows":
+        return "win32com"
+    # auto
+    import platform
+    return "win32com" if platform.system() == "Windows" else "applescript"
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 @click.command()
