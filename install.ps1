@@ -34,18 +34,31 @@ python -m pip install -q --upgrade pip
 pip install -q -r requirements.txt
 Write-Host "✔  Dependencies installed"
 
-# ── .env setup ────────────────────────────────────────────────────────────────
-if (Test-Path ".env") {
-    Write-Host "✔  .env already exists — skipping credential setup"
-} else {
-    Write-Host ""
-    Write-Host "── Database & AWS credentials ──────────────────────────────────────────"
-    Write-Host "   (stored in .env, restricted to your Windows account only)"
-    Write-Host ""
+# ── Credential setup ─────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "── Database credentials ────────────────────────────────────────────────"
+Write-Host "   Credentials are saved to Windows Credential Manager — never written to disk."
+Write-Host "   Ask your admin for your personal DATABASE_URL."
+Write-Host ""
 
-    $dbUrl    = Read-Host "  DATABASE_URL"
+$existingUrl = python -c "
+import keyring, sys
+url = keyring.get_password('apex-campaigns', 'DATABASE_URL')
+if url: print(url)
+" 2>$null
+
+if ($existingUrl) {
+    Write-Host "✔  DATABASE_URL already saved in Windows Credential Manager — skipping"
+} else {
+    $dbUrlSecure = Read-Host "  DATABASE_URL" -AsSecureString
+    $dbUrl = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($dbUrlSecure))
+    python -c "import keyring; keyring.set_password('apex-campaigns', 'DATABASE_URL', '$dbUrl'); print('✔  DATABASE_URL saved to Windows Credential Manager')"
+}
+
+# Write non-sensitive config to .env (no secrets here)
+if (-not (Test-Path ".env")) {
     $awsKey   = Read-Host "  AWS_ACCESS_KEY_ID"
-    # Read-Host -AsSecureString hides the input — password never echoed to screen
     $awsSecretSecure = Read-Host "  AWS_SECRET_ACCESS_KEY" -AsSecureString
     $awsSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
                     [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($awsSecretSecure))
@@ -56,7 +69,6 @@ if (Test-Path ".env") {
     $sesQueue  = Read-Host "  SES_EVENTS_QUEUE_URL"
 
     $envContent = @"
-DATABASE_URL="$dbUrl"
 AWS_ACCESS_KEY_ID=$awsKey
 AWS_SECRET_ACCESS_KEY=$awsSecret
 AWS_REGION=$awsRegion
@@ -65,15 +77,16 @@ SES_EVENTS_QUEUE_URL=$sesQueue
 "@
     Set-Content -Path ".env" -Value $envContent
 
-    # Restrict .env to current user only (remove inherited permissions, grant only owner)
     $acl = Get-Acl ".env"
-    $acl.SetAccessRuleProtection($true, $false)   # break inheritance, remove inherited
+    $acl.SetAccessRuleProtection($true, $false)
     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
         $env:USERNAME, "FullControl", "Allow"
     )
     $acl.SetAccessRule($rule)
     Set-Acl ".env" $acl
-    Write-Host "✔  .env created (restricted to $env:USERNAME only)"
+    Write-Host "✔  .env created (no DB credentials stored — those are in Credential Manager)"
+} else {
+    Write-Host "✔  .env already exists — skipping"
 }
 
 Write-Host ""

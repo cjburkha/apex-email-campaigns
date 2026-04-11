@@ -30,16 +30,34 @@ pip install -q --upgrade pip
 pip install -q -r requirements.txt
 echo "✔  Dependencies installed"
 
-# ── .env setup ────────────────────────────────────────────────────────────────
-if [ -f ".env" ]; then
-    echo "✔  .env already exists — skipping credential setup"
-else
-    echo ""
-    echo "── Database & AWS credentials ──────────────────────────────────────────"
-    echo "   (credentials are written to .env with chmod 600 — owner-read only)"
-    echo ""
+# ── Credential setup ─────────────────────────────────────────────────────────
+echo ""
+echo "── Database credentials ────────────────────────────────────────────────"
+echo "   Credentials are saved to the macOS Keychain — never written to disk."
+echo "   Ask your admin for your personal DATABASE_URL."
+echo ""
 
-    read -p    "  DATABASE_URL : " DB_URL
+# Check if already saved in keyring
+EXISTING=$(python3 -c "
+import keyring, sys
+url = keyring.get_password('apex-campaigns', 'DATABASE_URL')
+if url: print(url)
+" 2>/dev/null)
+
+if [ -n "$EXISTING" ]; then
+    echo "✔  DATABASE_URL already saved in macOS Keychain — skipping"
+else
+    read -s -p "  DATABASE_URL (hidden): " DB_URL
+    echo ""
+    python3 -c "
+import keyring
+keyring.set_password('apex-campaigns', 'DATABASE_URL', '$DB_URL')
+print('✔  DATABASE_URL saved to macOS Keychain')
+"
+fi
+
+# Write non-sensitive config to .env (no secrets here)
+if [ ! -f ".env" ]; then
     read -p    "  AWS_ACCESS_KEY_ID : " AWS_KEY
     read -s -p "  AWS_SECRET_ACCESS_KEY (hidden): " AWS_SECRET
     echo ""
@@ -50,17 +68,16 @@ else
     read -p    "  SES_EVENTS_QUEUE_URL : " SES_QUEUE
 
     cat > .env <<EOF
-DATABASE_URL="${DB_URL}"
 AWS_ACCESS_KEY_ID=${AWS_KEY}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET}
 AWS_REGION=${AWS_REGION}
 SES_CONFIG_SET=${SES_CONFIG_SET}
 SES_EVENTS_QUEUE_URL=${SES_QUEUE}
 EOF
-
-    # Restrict to owner read/write only — no other users can read credentials
     chmod 600 .env
-    echo "✔  .env created (permissions: 600)"
+    echo "✔  .env created (permissions: 600, no DB credentials stored)"
+else
+    echo "✔  .env already exists — skipping"
 fi
 
 # ── Executable bits ───────────────────────────────────────────────────────────

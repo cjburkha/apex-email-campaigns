@@ -22,15 +22,51 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_KEYRING_SERVICE = "apex-campaigns"
+_KEYRING_KEY     = "DATABASE_URL"
+
+
+def _get_database_url() -> str:
+    """
+    Load DATABASE_URL using this priority order:
+      1. Environment variable / .env file  (CI, docker, explicit override)
+      2. OS keychain  (macOS Keychain / Windows Credential Manager)
+      3. Interactive prompt → saved to keychain for next time
+
+    Credentials stored in the OS keychain are encrypted by the OS and tied
+    to your login session — they never touch the filesystem in plain text.
+    """
+    # 1. Environment / .env
+    url = os.environ.get(_KEYRING_KEY)
+    if url:
+        return url
+
+    # 2. OS keychain
+    try:
+        import keyring
+        url = keyring.get_password(_KEYRING_SERVICE, _KEYRING_KEY)
+        if url:
+            return url
+    except Exception:
+        pass
+
+    # 3. Prompt and save to keychain
+    import click
+    click.echo("\n🔑  No DATABASE_URL found in .env or OS keychain.")
+    click.echo("    Ask your admin for your personal DATABASE_URL.")
+    url = click.prompt("    DATABASE_URL", hide_input=True).strip()
+    try:
+        import keyring as kr
+        kr.set_password(_KEYRING_SERVICE, _KEYRING_KEY, url)
+        click.echo("    ✔  Saved to OS keychain — won't be asked again.\n")
+    except Exception:
+        click.echo("    ⚠️  Could not save to keychain. Add DATABASE_URL to .env manually.\n")
+    return url
+
 
 def get_conn():
-    """Return a _PgConn backed by DATABASE_URL from the environment."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError(
-            "DATABASE_URL is not set — add it to your .env file.\n"
-            "Run:  bash scripts/create-apex-db.sh  to create the database."
-        )
+    """Return a _PgConn backed by DATABASE_URL from the environment or OS keychain."""
+    url = _get_database_url()
     conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
     return _PgConn(conn)
 
