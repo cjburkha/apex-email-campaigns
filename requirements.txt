@@ -7,3 +7,4 @@ msal>=1.28
 requests>=2.31
 psycopg2-binary>=2.9
 openpyxl>=3.1
+pywin32>=306; sys_platform == "win32"

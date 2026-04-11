@@ -19,6 +19,7 @@ Batching:
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -174,8 +175,12 @@ end tell
               help="Render & preview every email without sending")
 @click.option("--limit", default=None, type=int,
               help="Max valid unsent leads to process in this batch")
-def send(campaign: str, sql_query: str, dry_run: bool, limit: int):
-    """Send a campaign via the local Outlook desktop app (AppleScript)."""
+@click.option("--backend", default="auto",
+              type=click.Choice(["auto", "applescript", "win32com"], case_sensitive=False),
+              help="Email backend: auto-detect (default), applescript (macOS), win32com (Windows)")
+def send(campaign: str, sql_query: str, dry_run: bool, limit: int, backend: str):
+    """Send a campaign via the local Outlook desktop app."""
+    backend = _detect_backend(backend)
     init_db()
 
     # ── load campaign config ───────────────────────────────────────────────────
@@ -292,9 +297,10 @@ def send(campaign: str, sql_query: str, dry_run: bool, limit: int):
     total = len(pending_rows)
 
     # ── print summary ─────────────────────────────────────────────────────────
+    _backend_labels = {"applescript": "Outlook/AppleScript (macOS)", "win32com": "Outlook/win32com (Windows)"}
     click.echo(f"\n📧  {config['name']}")
     click.echo(f"    From  : {config['from_name']} <{config['from_email']}>")
-    click.echo(f"    Via   : Outlook (AppleScript)")
+    click.echo(f"    Via   : {_backend_labels.get(backend, backend)}")
     click.echo(f"    Query : {sql_query[:80]}{'…' if len(sql_query) > 80 else ''}")
     click.echo(f"    Pool  : {len(all_leads)} lead(s) from query")
     if invalid_leads:
@@ -351,12 +357,20 @@ def send(campaign: str, sql_query: str, dry_run: bool, limit: int):
             continue
 
         try:
-            send_via_applescript(
-                to_email=email,
-                to_name=to_name,
-                subject=subject,
-                html_body=html,
-            )
+            if backend == "win32com":
+                send_via_win32com(
+                    to_email=email,
+                    to_name=to_name,
+                    subject=subject,
+                    html_body=html,
+                )
+            else:
+                send_via_applescript(
+                    to_email=email,
+                    to_name=to_name,
+                    subject=subject,
+                    html_body=html,
+                )
             conn.execute(
                 "UPDATE campaign_sends "
                 "SET status='sent', sent_at=NOW() "
