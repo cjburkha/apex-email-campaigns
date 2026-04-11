@@ -164,6 +164,51 @@ end tell
         raise RuntimeError(result.stderr.strip())
 
 
+# ── Windows COM helpers ───────────────────────────────────────────────────────
+
+def _check_outlook_classic():
+    """Verify classic Outlook (COM-capable) is installed on Windows."""
+    try:
+        import winreg
+    except ImportError:
+        raise click.ClickException("pywin32 is required on Windows. Run: pip install pywin32")
+    outlook_exe = None
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            key = winreg.OpenKey(hive, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE")
+            outlook_exe, _ = winreg.QueryValueEx(key, "")
+            winreg.CloseKey(key)
+            break
+        except FileNotFoundError:
+            continue
+    if not outlook_exe:
+        raise click.ClickException(
+            "Classic Outlook not found.\n"
+            "The new Outlook app does not support desktop automation.\n"
+            "To fix: open Outlook → toggle 'Try the new Outlook' OFF (top-right corner)."
+        )
+
+
+def send_via_win32com(to_email: str, to_name: str, subject: str, html_body: str):
+    """Send via classic Outlook COM using Recipients.Add() to reduce OOM Guard prompts."""
+    try:
+        import win32com.client
+    except ImportError:
+        raise RuntimeError("pywin32 is required on Windows. Run: pip install pywin32")
+    OL_MAIL_ITEM = 0
+    OL_TO = 1
+    outlook = win32com.client.Dispatch("Outlook.Application")
+    mail = outlook.CreateItem(OL_MAIL_ITEM)
+    mail.Subject = subject
+    mail.HTMLBody = html_body
+    recip = mail.Recipients.Add(to_email)
+    recip.Type = OL_TO
+    if to_name:
+        recip.Name = to_name
+    recip.Resolve()
+    mail.Send()
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 @click.command()
@@ -173,14 +218,21 @@ end tell
               help="SQL SELECT query against the leads table (prompted if omitted)")
 @click.option("--dry-run", is_flag=True,
               help="Render & preview every email without sending")
+@click.option("--test", "test_email", default=None,
+              help="Send a single test email to this address instead of the full batch")
 @click.option("--limit", default=None, type=int,
               help="Max valid unsent leads to process in this batch")
 @click.option("--os", "os_flag", default="auto",
               type=click.Choice(["auto", "mac", "windows"], case_sensitive=False),
               help="Platform: auto-detect (default), mac, windows")
-def send(campaign: str, sql_query: str, dry_run: bool, limit: int, os_flag: str):
+def send(campaign: str, sql_query: str, dry_run: bool, test_email: str, limit: int, os_flag: str):
     """Send a campaign via the local Outlook desktop app."""
     backend = _detect_backend(os_flag)
+
+    # On Windows, verify classic Outlook is installed before doing anything
+    if backend == "win32com":
+        _check_outlook_classic()
+
     init_db()
 
     # ── load campaign config ───────────────────────────────────────────────────
@@ -314,10 +366,40 @@ def send(campaign: str, sql_query: str, dry_run: bool, limit: int, os_flag: str)
     if already_done:
         click.echo(f"    Done  : {len(already_done)} already sent/failed — skipped")
     click.echo(f"    Queue : {total} recipient(s) to send{f'  (batch limit: {limit})' if limit else ''}")
-    click.echo(f"    Mode  : {'⚠️  DRY RUN — nothing will be sent' if dry_run else '🚀 LIVE'}\n")
+    if test_email:
+        click.echo(f"    Mode  : 🧪 TEST — single email to {test_email}\n")
+    else:
+        click.echo(f"    Mode  : {'⚠️  DRY RUN — nothing will be sent' if dry_run else '🚀 LIVE'}\n")
 
     if total == 0:
         click.secho("✅  Nothing to send.", fg="green")
+        conn.close()
+        return
+
+    # ── test mode: send one email to the override address, no DB writes ───────
+    if test_email:
+        r = pending_rows[0]
+        vars = dict(
+            first_name=r["first_name"] or "",
+            last_name=r["last_name"] or "",
+            email=test_email,
+            city=r["city"] or "",
+            state=r["state"] or "",
+            postal_code=r["postal_code"] or "",
+            phone=r["phone_primary"] or "",
+        )
+        subject  = Template(config["subject"]).render(**vars)
+        html     = _add_utm(html_tmpl.render(**vars), utm_base)
+        to_name  = f"{vars['first_name']} {vars['last_name']}".strip()
+        click.echo(f"  Sending test → {test_email}  ({subject})")
+        try:
+            if backend == "win32com":
+                send_via_win32com(to_email=test_email, to_name=to_name, subject=subject, html_body=html)
+            else:
+                send_via_applescript(to_email=test_email, to_name=to_name, subject=subject, html_body=html)
+            click.secho("  ✓ Test email sent — no DB records written.", fg="green")
+        except Exception as exc:
+            click.secho(f"  ✗ Test failed: {exc}", fg="red", err=True)
         conn.close()
         return
 
