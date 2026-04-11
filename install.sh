@@ -45,14 +45,15 @@ if url: print(url)
 " 2>/dev/null)
 
 if [ -n "$EXISTING" ]; then
-    echo "✔  DATABASE_URL already saved in macOS Keychain — skipping"
+    echo "✔  Credentials already saved in macOS Keychain — skipping"
 else
-    read -s -p "  DATABASE_URL (hidden): " DB_URL
+    read -p    "  Username : " DB_USER
+    read -s -p "  Password (hidden): " DB_PASS
     echo ""
     python3 -c "
 import keyring
-keyring.set_password('apex-campaigns', 'DATABASE_URL', '$DB_URL')
-print('✔  DATABASE_URL saved to macOS Keychain')
+keyring.set_password('apex-campaigns', 'DATABASE_URL', '${DB_USER}|${DB_PASS}')
+print('✔  Credentials saved to macOS Keychain')
 "
 fi
 

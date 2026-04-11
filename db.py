@@ -24,6 +24,12 @@ load_dotenv()
 
 _KEYRING_SERVICE = "apex-campaigns"
 _KEYRING_KEY     = "DATABASE_URL"
+_DB_HOST = "wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com"
+_DB_NAME = "apex"
+
+
+def _build_url(username: str, password: str) -> str:
+    return f"postgresql://{username}:{password}@{_DB_HOST}:5432/{_DB_NAME}?sslmode=require"
 
 
 def _get_database_url() -> str:
@@ -36,32 +42,35 @@ def _get_database_url() -> str:
     Credentials stored in the OS keychain are encrypted by the OS and tied
     to your login session — they never touch the filesystem in plain text.
     """
-    # 1. Environment / .env
+    # 1. Environment / .env (full URL override)
     url = os.environ.get(_KEYRING_KEY)
     if url:
         return url
 
-    # 2. OS keychain
+    # 2. OS keychain — stored as "username|password"
     try:
         import keyring
-        url = keyring.get_password(_KEYRING_SERVICE, _KEYRING_KEY)
-        if url:
-            return url
+        stored = keyring.get_password(_KEYRING_SERVICE, _KEYRING_KEY)
+        if stored and "|" in stored:
+            username, _, password = stored.partition("|")
+            return _build_url(username, password)
+        elif stored:  # legacy: full URL stored directly
+            return stored
     except Exception:
         pass
 
-    # 3. Prompt and save to keychain
+    # 3. Prompt for username + password and save to keychain
     import click
-    click.echo("\n🔑  No DATABASE_URL found in .env or OS keychain.")
-    click.echo("    Ask your admin for your personal DATABASE_URL.")
-    url = click.prompt("    DATABASE_URL", hide_input=True).strip()
+    click.echo("\n🔑  No credentials found. Ask your admin for your username and password.")
+    username = click.prompt("    Username").strip()
+    password = click.prompt("    Password", hide_input=True).strip()
     try:
         import keyring as kr
-        kr.set_password(_KEYRING_SERVICE, _KEYRING_KEY, url)
+        kr.set_password(_KEYRING_SERVICE, _KEYRING_KEY, f"{username}|{password}")
         click.echo("    ✔  Saved to OS keychain — won't be asked again.\n")
     except Exception:
         click.echo("    ⚠️  Could not save to keychain. Add DATABASE_URL to .env manually.\n")
-    return url
+    return _build_url(username, password)
 
 
 def get_conn():

@@ -48,12 +48,13 @@ if url: print(url)
 " 2>$null
 
 if ($existingUrl) {
-    Write-Host "✔  DATABASE_URL already saved in Windows Credential Manager — skipping"
+    Write-Host "✔  Credentials already saved in Windows Credential Manager — skipping"
 } else {
-    $dbUrlSecure = Read-Host "  DATABASE_URL" -AsSecureString
-    $dbUrl = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($dbUrlSecure))
-    python -c "import keyring; keyring.set_password('apex-campaigns', 'DATABASE_URL', '$dbUrl'); print('✔  DATABASE_URL saved to Windows Credential Manager')"
+    $dbUser = Read-Host "  Username"
+    $dbPassSecure = Read-Host "  Password" -AsSecureString
+    $dbPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($dbPassSecure))
+    python -c "import keyring; keyring.set_password('apex-campaigns', 'DATABASE_URL', '${dbUser}|${dbPass}'); print('✔  Credentials saved to Windows Credential Manager')"
 }
 
 # Write non-sensitive config to .env (no secrets here)
