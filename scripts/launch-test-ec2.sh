@@ -85,8 +85,64 @@ else
   echo "✔  RDP rule updated for $MY_IP"
 fi
 
+# ── UserData: silently install classic Outlook via Office Deployment Tool ─────
+# Runs automatically on first boot — Outlook is ready by the time you RDP in.
+# You still need to sign into Outlook manually after connecting.
+USER_DATA=$(cat <<'USERDATA'
+<powershell>
+$ProgressPreference = 'SilentlyContinue'
+$dir = 'C:\OfficeSetup'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+# Download Office Deployment Tool
+Invoke-WebRequest -Uri 'https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_18827-20140.exe' `
+  -OutFile "$dir\odt.exe" -UseBasicParsing
+Start-Process -FilePath "$dir\odt.exe" -ArgumentList "/quiet /extract:$dir" -Wait
+
+# Config: install Outlook only (64-bit, en-US, no desktop shortcuts, no auto-update UI)
+@'
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+      <ExcludeApp ID="Access" />
+      <ExcludeApp ID="Excel" />
+      <ExcludeApp ID="Forms" />
+      <ExcludeApp ID="Groove" />
+      <ExcludeApp ID="Lync" />
+      <ExcludeApp ID="OneDrive" />
+      <ExcludeApp ID="OneNote" />
+      <ExcludeApp ID="PowerPoint" />
+      <ExcludeApp ID="Publisher" />
+      <ExcludeApp ID="Teams" />
+      <ExcludeApp ID="Word" />
+    </Product>
+  </Add>
+  <Updates Enabled="FALSE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Property Name="AUTOACTIVATE" Value="0" />
+</Configuration>
+'@ | Set-Content "$dir\outlook-only.xml"
+
+# Download + install (~5 min depending on connection)
+Start-Process -FilePath "$dir\setup.exe" -ArgumentList "/download $dir\outlook-only.xml" -Wait
+Start-Process -FilePath "$dir\setup.exe" -ArgumentList "/configure $dir\outlook-only.xml" -Wait
+
+# Write a reminder on the Desktop
+@'
+NEXT STEPS:
+1. Open Outlook from the Start menu
+2. Sign in with your Microsoft 365 account
+3. Open Edge and download setup-windows.bat from:
+   https://raw.githubusercontent.com/cjburkha/apex-email-campaigns/master/setup-windows.bat
+4. Double-click setup-windows.bat
+'@ | Set-Content "$env:PUBLIC\Desktop\README - Setup Steps.txt"
+</powershell>
+USERDATA
+)
+
 # ── Launch instance ───────────────────────────────────────────────────────────
-echo "→  Launching $INSTANCE_TYPE instance..."
+echo "→  Launching $INSTANCE_TYPE instance (Outlook will install automatically on first boot)..."
 INSTANCE_ID=$(aws ec2 run-instances \
   --region "$REGION" \
   --image-id "$AMI_ID" \
@@ -95,6 +151,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
   --security-group-ids "$SG_ID" \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$TAG_NAME}]" \
   --block-device-mappings "DeviceName=/dev/sda1,Ebs={VolumeSize=50,VolumeType=gp3,DeleteOnTermination=true}" \
+  --user-data "$USER_DATA" \
   --query "Instances[0].InstanceId" \
   --output text)
 echo "✔  Instance: $INSTANCE_ID"
@@ -137,12 +194,11 @@ echo "║  Connect: open 'Microsoft Remote Desktop', add PC above.    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Once connected:"
-echo "  1. Open Edge → sign into microsoft365.com with your M365 account"
-echo "  2. Install Office → open Outlook → sign in"
-echo "  3. Open Edge → download setup-windows.bat from:"
-echo "     https://raw.githubusercontent.com/cjburkha/apex-email-campaigns/master/setup-windows.bat"
-echo "  4. Double-click setup-windows.bat"
-echo "  5. Test: go.bat window-inspection \"SELECT * FROM leads LIMIT 5\" --dry-run"
+echo "  ⏳ Outlook is installing in the background (started on boot, takes ~5 min)"
+echo "  1. Open Outlook from the Start menu → sign in with your M365 account"
+echo "  2. Read 'README - Setup Steps.txt' on the Desktop"
+echo "  3. Download + double-click setup-windows.bat — it handles everything else"
+echo "  4. Test: go.bat window-inspection \"SELECT * FROM leads LIMIT 5\" --dry-run"
 echo ""
 echo "⚠️  TERMINATE WHEN DONE (costs ~\$0.05/hr while running):"
 echo "   AWS_PROFILE=wbb-admin aws ec2 terminate-instances --instance-ids $INSTANCE_ID --region $REGION"
