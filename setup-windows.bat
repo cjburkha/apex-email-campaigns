@@ -17,19 +17,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
     }
     Set-Location $installDir
 
-    # ── Python check ──────────────────────────────────────────────────────────
+    # ── Python check / auto-install ───────────────────────────────────────────────
     $python = Get-Command python -ErrorAction SilentlyContinue
     if (-not $python) {
         Write-Host ''
-        Write-Host '❌  Python is not installed.'
-        Write-Host '    1. Go to: https://www.python.org/downloads/'
-        Write-Host '    2. Download and install Python 3.11 or newer'
-        Write-Host '    3. IMPORTANT: check the box that says Add Python to PATH'
-        Write-Host '    4. Re-run this setup after installing Python.'
-        Write-Host ''
-        pause
-        Start-Process 'https://www.python.org/downloads/'
-        exit 1
+        Write-Host '→  Python not found — downloading and installing Python 3.11...'
+        Write-Host '   (this takes about 1 minute, please wait)'
+        $pyInstaller = Join-Path $env:TEMP 'python-installer.exe'
+        Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' `
+            -OutFile $pyInstaller -UseBasicParsing
+        # /quiet     = no UI
+        # PrependPath=1 = add to PATH (equivalent to "Add Python to PATH" checkbox)
+        # InstallAllUsers=0 = install for current user only (no admin required)
+        Start-Process -FilePath $pyInstaller `
+            -ArgumentList '/quiet InstallAllUsers=0 PrependPath=1 Include_test=0' `
+            -Wait
+        Remove-Item $pyInstaller -Force
+        # Reload PATH so python is available in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' +
+                    [System.Environment]::GetEnvironmentVariable('Path','Machine')
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $python) {
+            Write-Host ''
+            Write-Host '❌  Python install succeeded but python command still not found.'
+            Write-Host '    Please restart this setup script and try again.'
+            Write-Host ''
+            pause
+            exit 1
+        }
+        Write-Host '✔  Python installed successfully'
     }
     $pyVer = python -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")'
     Write-Host \"✔  Python $pyVer found\"
