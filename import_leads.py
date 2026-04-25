@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS leads (
     updated_at       TEXT,
     inserted_at      TEXT,
     deleted          TEXT,
-    source_file_id   INTEGER REFERENCES source_files(id),
+    source_id        INTEGER REFERENCES source(id),
     test_lead        INTEGER NOT NULL DEFAULT 0
 )
 """
@@ -113,7 +113,7 @@ def import_leads(reset: bool):
     total = 0
     for filepath, is_customer in FILES:
         # Ensure the source file has a lookup row and grab its id once per file
-        source_file_id = _get_or_create(conn, "source_files", "path", filepath)
+        source_file_id = _get_or_create(conn, "source", "path", filepath)
         conn.commit()
 
         wb = openpyxl.load_workbook(filepath, read_only=True)
@@ -130,7 +130,7 @@ def import_leads(reset: bool):
 
             # Convert text lookups → FK ids
             mapped["status_id"]      = _get_or_create(conn, "lead_statuses", "name", mapped.pop("status", None))
-            mapped["source_file_id"] = source_file_id
+            mapped["source_id"] = source_file_id
 
             cols   = list(mapped.keys())
             values = list(mapped.values())

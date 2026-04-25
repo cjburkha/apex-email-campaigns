@@ -125,7 +125,7 @@ def init_db() -> None:
     conn = get_conn()
     try:
       conn.executescript("""
-        CREATE TABLE IF NOT EXISTS source_files (
+        CREATE TABLE IF NOT EXISTS source (
             id    SERIAL PRIMARY KEY,
             path  TEXT   NOT NULL UNIQUE
         );
@@ -162,7 +162,7 @@ def init_db() -> None:
             updated_at       TEXT,
             inserted_at      TEXT,
             deleted          TEXT,
-            source_file_id   INTEGER REFERENCES source_files(id),
+            source_id        INTEGER REFERENCES source(id),
             test_lead        INTEGER NOT NULL DEFAULT 0
         );
 

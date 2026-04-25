@@ -181,7 +181,7 @@ def index():
     join_clause = """
         FROM leads l
         LEFT JOIN lead_statuses ls ON ls.id = l.status_id
-        LEFT JOIN source_files  sf ON sf.id = l.source_file_id
+        LEFT JOIN source        sf ON sf.id = l.source_id
     """
 
     # Build WHERE
