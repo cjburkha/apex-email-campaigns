@@ -71,9 +71,26 @@ def _unsubscribe_url(lead_id: int, token: str) -> str:
     return f"{base}?id={lead_id}&t={token}"
 
 
-def _send_sms(pinpoint, application_id, phone_number: str, message: str):
+def _send_sms(phone_number: str, message: str):
+    """Send an SMS via Twilio or Pinpoint depending on SMS_PROVIDER env var."""
+    provider = os.getenv("SMS_PROVIDER", "twilio").lower()
+
+    if provider == "twilio":
+        from twilio.rest import Client  # noqa: PLC0415
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        from_number = os.getenv("SMS_ORIGINATING_NUMBER")
+        if not account_sid or not auth_token or not from_number:
+            raise RuntimeError("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and SMS_ORIGINATING_NUMBER must be set in .env")
+        client = Client(account_sid, auth_token)
+        msg = client.messages.create(body=message, from_=from_number, to=phone_number)
+        return msg.sid, msg.status
+
+    # provider == "pinpoint"
+    application_id = os.getenv("PINPOINT_APPLICATION_ID")
     if not application_id:
         raise RuntimeError("PINPOINT_APPLICATION_ID is not set in .env")
+    pinpoint = boto3.client("pinpoint", region_name=os.getenv("AWS_REGION", "us-east-1"))
     body = {"Body": message, "MessageType": "TRANSACTIONAL"}
     sender_id = os.getenv("SMS_SENDER_ID")
     if sender_id:
@@ -81,16 +98,11 @@ def _send_sms(pinpoint, application_id, phone_number: str, message: str):
     origination_number = os.getenv("SMS_ORIGINATING_NUMBER")
     if origination_number:
         body["OriginationNumber"] = origination_number
-
     response = pinpoint.send_messages(
         ApplicationId=application_id,
         MessageRequest={
-            "Addresses": {
-                phone_number: {"ChannelType": "SMS"},
-            },
-            "MessageConfiguration": {
-                "SMSMessage": body,
-            },
+            "Addresses": {phone_number: {"ChannelType": "SMS"}},
+            "MessageConfiguration": {"SMSMessage": body},
         },
     )
     result = response["MessageResponse"]["Result"][phone_number]
@@ -210,11 +222,9 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
     if not dry_run:
         click.confirm(f"Send {total} emails now?", abort=True)
 
-    # ── SES + Pinpoint clients ─────────────────────────────────────────────────
-    ses                  = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    pinpoint             = boto3.client("pinpoint", region_name=os.getenv("AWS_REGION", "us-east-1")) if sms_tmpl else None
-    pinpoint_app_id      = os.getenv("PINPOINT_APPLICATION_ID")
-    config_set           = os.getenv("SES_CONFIG_SET", "apex-campaigns")
+    # ── SES client ────────────────────────────────────────────────────────────
+    ses        = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    config_set = os.getenv("SES_CONFIG_SET", "apex-campaigns")
     utm_base             = {
         "utm_source":   config.get("utm_source",   "email"),
         "utm_medium":   config.get("utm_medium",   "email"),
@@ -293,7 +303,7 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
 
         if sms_body:
             try:
-                sms_message_id, sms_status = _send_sms(pinpoint, pinpoint_app_id, phone, sms_body)
+                sms_message_id, sms_status = _send_sms(phone, sms_body)
                 sms_sent = True
             except Exception as exc:
                 errors.append(f"sms: {exc}")
