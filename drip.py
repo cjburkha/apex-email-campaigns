@@ -182,8 +182,6 @@ def run(campaign: str, limit: int, dry_run: bool):
         return
 
     ses = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    pinpoint = boto3.client("pinpoint", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    pinpoint_app_id = os.getenv("PINPOINT_APPLICATION_ID")
     sent = failed = 0
 
     for i, r in enumerate(pending_rows, 1):
@@ -244,7 +242,7 @@ def run(campaign: str, limit: int, dry_run: bool):
 
         if channel in ("sms", "both") and sms and vars["phone"]:
             try:
-                sms_message_id, sms_status = _send_sms(pinpoint, pinpoint_app_id, vars["phone"], sms)
+                sms_message_id, sms_status = _send_sms(vars["phone"], sms)
                 sms_sent = True
             except Exception as exc:
                 errors.append(f"sms: {exc}")
