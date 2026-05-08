@@ -20,7 +20,22 @@
       "Read(//Users/chrisb/dev/windows-by-burkhardt/**)",
       "Read(//Users/chrisb/**)",
       "Skill(schedule)",
-      "Bash(npm show:*)"
+      "Bash(npm show:*)",
+      "Bash(aws configure *)",
+      "Bash(aws route53 *)",
+      "Bash(aws ses *)",
+      "Bash(aws sts *)",
+      "Bash(mkdir -p /Users/chrisb/dev/apex-email-campaigns/scripts/email-forwarder)",
+      "Bash(bash scripts/deploy-email-forwarder.sh)",
+      "Bash(zip -q lambda.zip lambda_function.py)",
+      "Bash(aws lambda *)",
+      "Bash(rm lambda.zip)",
+      "Bash(git commit -m ' *)",
+      "Bash(aws pinpoint *)",
+      "Bash(aws pinpoint-sms-voice-v2 *)"
+    ],
+    "additionalDirectories": [
+      "/Users/chrisb/dev/apex-email-campaigns/scripts"
     ]
   }
 }
