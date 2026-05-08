@@ -40,8 +40,8 @@ def lambda_handler(event, context):
     del msg["To"]
     msg["To"] = FORWARD_TO
 
-    # Strip DKIM signatures — they'll fail after header rewrite
-    for header in ("DKIM-Signature", "DomainKey-Signature"):
+    # Strip headers that would fail SES identity checks or break re-sending
+    for header in ("DKIM-Signature", "DomainKey-Signature", "Return-Path", "Sender"):
         while header in msg:
             del msg[header]
 
