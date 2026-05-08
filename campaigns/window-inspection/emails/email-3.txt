@@ -1,0 +1,15 @@
+Hi {{ first_name }},
+
+This week we’re looking at comfort and energy savings. If your windows feel cold or drafty, a fast inspection can help you decide what to repair or replace.
+
+We can also identify whether new windows are a better investment than repeated repairs.
+
+Let me know if you want a free consultation and estimate for your {{ city }} home.
+
+Schedule here:
+https://windowsbyburkhardt.com/#schedule
+
+Apex Energy Solutions
+
+You're receiving this because your address is in our {{ city }} service area.
+To stop receiving emails, reply with "unsubscribe" or use the unsubscribe link.

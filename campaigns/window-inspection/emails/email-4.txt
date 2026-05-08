@@ -1,0 +1,13 @@
+Hello {{ first_name }},
+
+This is the last message in this campaign sequence. If you want a free window inspection for your {{ city }} home, now is a great time to schedule it.
+
+We’ll review your windows, identify the best options, and give you a clear estimate—no pressure.
+
+Schedule your inspection here:
+https://windowsbyburkhardt.com/#schedule
+
+Apex Energy Solutions
+
+You're receiving this because your address is in our {{ city }} service area.
+To stop receiving emails, reply with "unsubscribe" or use the unsubscribe link.

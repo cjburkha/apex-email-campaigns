@@ -6,7 +6,3 @@ __pycache__/
 *.pyo
 venv/
 .venv/
-.DS_Store
-.claude/
-*.xlsx
-*.xls

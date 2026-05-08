@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude:*)",
+      "Bash(npx:*)",
+      "Bash(python3 -c \"import qrcode; qr = qrcode.QRCode\\(\\); qr.add_data\\('https://claude.ai/code/session_01TtHkaxEhPtsvLXvBaYR4Qi'\\); qr.make\\(\\); qr.print_ascii\\(\\)\")",
+      "Bash(gh repo:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(venv/bin/python3:*)",
+      "Bash(venv/bin/pip install:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5000/)",
+      "Bash(curl:*)",
+      "Bash(pkill -f \"python3 web.py\")",
+      "WebFetch(domain:www.apexenergygroup.com)",
+      "Bash(osascript:*)",
+      "Bash(sdef \"/Applications/Microsoft Outlook.app\")",
+      "Bash(chmod +x:*)",
+      "Bash(./go window-inspection:*)",
+      "Read(//Users/chrisb/dev/windows-by-burkhardt/**)",
+      "Read(//Users/chrisb/**)",
+      "Skill(schedule)",
+      "Bash(npm show:*)"
+    ]
+  }
+}

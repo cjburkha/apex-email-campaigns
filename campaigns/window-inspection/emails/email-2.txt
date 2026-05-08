@@ -1,0 +1,17 @@
+Hello {{ first_name }},
+
+This week I’m following up with a quick note about a few common issues we find in {{ city }} homes:
+
+  • Drafty windows
+  • Moisture buildup around the frame
+  • Windows that are hard to open or close
+
+A fast free inspection can tell you whether repair, sealing, or replacement is the best solution.
+
+Reserve your free review here:
+https://windowsbyburkhardt.com/#schedule
+
+Apex Energy Solutions
+
+You're receiving this because your address is in our {{ city }} service area.
+To stop receiving emails, reply with "unsubscribe" or use the unsubscribe link.

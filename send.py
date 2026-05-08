@@ -15,6 +15,8 @@ Each (campaign, lead) pair is tracked in campaign_sends. Running the same comman
 twice will skip leads already queued/sent — safe to re-run after a partial failure.
 """
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -46,6 +48,53 @@ def _add_utm(html: str, utm: dict) -> str:
         return f'href="{urlunparse(parsed._replace(query=new_qs))}"'
     return re.sub(r'href="(https?://[^"]+)"', _rewrite, html)
 
+def _normalize_phone(phone: str) -> str:
+    if not phone:
+        return ""
+    phone = re.sub(r"[^0-9+]", "", phone)
+    if phone.startswith("+"):
+        return phone
+    if len(phone) == 10:
+        return f"+1{phone}"
+    if len(phone) == 11 and phone.startswith("1"):
+        return f"+{phone}"
+    return phone
+
+
+def _make_unsubscribe_token(lead_id: int, email: str) -> str:
+    secret = os.getenv("UNSUBSCRIBE_SECRET", "change-me").encode("utf-8")
+    return hmac.new(secret, f"{lead_id}:{email}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _unsubscribe_url(lead_id: int, token: str) -> str:
+    base = os.getenv("UNSUBSCRIBE_BASE_URL", "https://windowsbyburkhardt.com/unsubscribe")
+    return f"{base}?id={lead_id}&t={token}"
+
+
+def _send_sms(pinpoint, application_id, phone_number: str, message: str):
+    if not application_id:
+        raise RuntimeError("PINPOINT_APPLICATION_ID is not set in .env")
+    body = {"Body": message, "MessageType": "TRANSACTIONAL"}
+    sender_id = os.getenv("SMS_SENDER_ID")
+    if sender_id:
+        body["SenderId"] = sender_id
+    origination_number = os.getenv("SMS_ORIGINATING_NUMBER")
+    if origination_number:
+        body["OriginationNumber"] = origination_number
+
+    response = pinpoint.send_messages(
+        ApplicationId=application_id,
+        MessageRequest={
+            "Addresses": {
+                phone_number: {"ChannelType": "SMS"},
+            },
+            "MessageConfiguration": {
+                "SMSMessage": body,
+            },
+        },
+    )
+    result = response["MessageResponse"]["Result"][phone_number]
+    return result.get("MessageId"), result.get("Status")
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -74,9 +123,11 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
     campaign_id = config.get("id", campaign)
 
     # ── load Jinja2 templates ─────────────────────────────────────────────────
-    env       = Environment(loader=FileSystemLoader(str(campaign_dir)))
-    html_tmpl = env.get_template("template.html")
-    txt_tmpl  = env.get_template("template.txt")
+    env             = Environment(loader=FileSystemLoader(str(campaign_dir)))
+    html_tmpl       = env.get_template("template.html")
+    txt_tmpl        = env.get_template("template.txt")
+    sms_template    = campaign_dir / "template.sms.txt"
+    sms_tmpl        = env.get_template("template.sms.txt") if sms_template.exists() else None
 
     # ── prompt for query if not provided ─────────────────────────────────────
     if not sql_query:
@@ -116,6 +167,8 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
     # ── enroll leads into campaign_sends (idempotent) ────────────────────────
     new_count = 0
     for lead in leads:
+        if lead.get("unsubscribed_at") is not None:
+            continue
         result = conn.execute(
             "INSERT INTO campaign_sends (campaign_id, lead_id) VALUES (%s,%s) "
             "ON CONFLICT (campaign_id, lead_id) DO NOTHING",
@@ -134,10 +187,10 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
         """
         SELECT cs.id as send_id, cs.lead_id,
                l.first_name, l.last_name, l.email, l.city,
-               l.state, l.postal_code, l.phone_primary
+               l.state, l.postal_code, l.phone_primary, l.phone_secondary
         FROM campaign_sends cs
         JOIN leads l ON l.id = cs.lead_id
-        WHERE cs.campaign_id = %s AND cs.status = 'queued'
+        WHERE cs.campaign_id = %s AND cs.status = 'queued' AND l.unsubscribed_at IS NULL
         """,
         (campaign_id,)
     ).fetchall()
@@ -157,10 +210,12 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
     if not dry_run:
         click.confirm(f"Send {total} emails now?", abort=True)
 
-    # ── SES client ────────────────────────────────────────────────────────────
-    ses        = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    config_set = os.getenv("SES_CONFIG_SET", "apex-campaigns")
-    utm_base   = {
+    # ── SES + Pinpoint clients ─────────────────────────────────────────────────
+    ses                  = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    pinpoint             = boto3.client("pinpoint", region_name=os.getenv("AWS_REGION", "us-east-1")) if sms_tmpl else None
+    pinpoint_app_id      = os.getenv("PINPOINT_APPLICATION_ID")
+    config_set           = os.getenv("SES_CONFIG_SET", "apex-campaigns")
+    utm_base             = {
         "utm_source":   config.get("utm_source",   "email"),
         "utm_medium":   config.get("utm_medium",   "email"),
         "utm_campaign": config.get("utm_campaign", campaign_id),
@@ -177,61 +232,100 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
             city=r["city"] or "",
             state=r["state"] or "",
             postal_code=r["postal_code"] or "",
-            phone=r["phone_primary"] or "",
+            phone=(r.get("phone_primary") or r.get("phone_secondary") or ""),
         )
 
         subject = Template(config["subject"]).render(**vars)
         html    = _add_utm(html_tmpl.render(**vars), utm_base)
         txt     = txt_tmpl.render(**vars)
+        phone   = _normalize_phone(vars["phone"])
+        sms_body = sms_tmpl.render(**vars) if sms_tmpl and phone else None
+        unsubscribe_tok = _make_unsubscribe_token(r["lead_id"], vars["email"])
+        unsubscribe_url = _unsubscribe_url(r["lead_id"], unsubscribe_tok)
+        reply_to = config.get("reply_to", config["from_email"])
 
         if dry_run:
-            click.echo(f"  [{i}/{total}] → {r['email']:40s}  {subject}")
+            channels = ["email" if vars["email"] else None, "sms" if sms_body else None]
+            channels = ", ".join([c for c in channels if c]) or "none"
+            click.echo(f"  [{i}/{total}] → {r.get('email') or phone:40s}  {subject}  ({channels})")
             continue
 
-        try:
-            resp = ses.send_email(
-                FromEmailAddress=f"{config['from_name']} <{config['from_email']}>",
-                Destination={"ToAddresses": [r["email"]]},
-                ReplyToAddresses=[config.get("reply_to", config["from_email"])],
-                Content={
-                    "Simple": {
-                        "Subject": {"Data": subject, "Charset": "UTF-8"},
-                        "Body": {
-                            "Text": {"Data": txt,  "Charset": "UTF-8"},
-                            "Html": {"Data": html, "Charset": "UTF-8"},
-                        },
-                        "Headers": [
-                            {
-                                "Name": "List-Unsubscribe",
-                                "Value": f"<mailto:{config.get('reply_to', config['from_email'])}?subject=unsubscribe>"
-                            },
-                            {
-                                "Name": "List-Unsubscribe-Post",
-                                "Value": "List-Unsubscribe=One-Click"
-                            },
-                        ],
-                    }
-                },
-                ConfigurationSetName=config_set,
-            )
-            conn.execute(
-                "UPDATE campaign_sends "
-                "SET status='sent', message_id=%s, sent_at=NOW() "
-                "WHERE id=%s",
-                (resp["MessageId"], r["send_id"])
-            )
-            conn.commit()
-            sent += 1
-            click.secho(f"  [{i}/{total}] ✓  {r['email']}", fg="green")
+        headers = [
+            {
+                "Name": "List-Unsubscribe",
+                "Value": f"<mailto:{reply_to}?subject=unsubscribe>, <{unsubscribe_url}>",
+            },
+            {
+                "Name": "List-Unsubscribe-Post",
+                "Value": "List-Unsubscribe=One-Click",
+            },
+        ]
 
-        except Exception as exc:
+        email_sent = False
+        sms_sent = False
+        sms_message_id = None
+        sms_status = None
+        errors = []
+        message_id = None
+
+        if vars["email"]:
+            try:
+                resp = ses.send_email(
+                    FromEmailAddress=f"{config['from_name']} <{config['from_email']}>",
+                    Destination={"ToAddresses": [vars["email"]]},
+                    ReplyToAddresses=[reply_to],
+                    Content={
+                        "Simple": {
+                            "Subject": {"Data": subject, "Charset": "UTF-8"},
+                            "Body": {
+                                "Text": {"Data": txt,  "Charset": "UTF-8"},
+                                "Html": {"Data": html, "Charset": "UTF-8"},
+                            },
+                            "Headers": headers,
+                        }
+                    },
+                    ConfigurationSetName=config_set,
+                )
+                email_sent = True
+                message_id = resp["MessageId"]
+            except Exception as exc:
+                errors.append(f"email: {exc}")
+
+        if sms_body:
+            try:
+                sms_message_id, sms_status = _send_sms(pinpoint, pinpoint_app_id, phone, sms_body)
+                sms_sent = True
+            except Exception as exc:
+                errors.append(f"sms: {exc}")
+
+        if not vars["email"] and not sms_body:
+            errors.append("no email or SMS contact available")
+
+        if not email_sent and not sms_sent:
             conn.execute(
                 "UPDATE campaign_sends SET status='failed', failed_reason=%s WHERE id=%s",
-                (str(exc), r["send_id"])
+                ("; ".join(errors), r["send_id"])
             )
             conn.commit()
             failed += 1
-            click.secho(f"  [{i}/{total}] ✗  {r['email']} — {exc}", fg="red", err=True)
+            click.secho(f"  [{i}/{total}] ✗  {r.get('email') or phone} — {'; '.join(errors)}", fg="red", err=True)
+        else:
+            update_sql = ["status='sent'", "sent_at=NOW()", "message_id=%s"]
+            update_params = [message_id]
+            if sms_message_id:
+                update_sql.append("sms_message_id=%s")
+                update_sql.append("sms_sent_at=NOW()")
+                update_sql.append("sms_status=%s")
+                update_params.extend([sms_message_id, sms_status])
+            update_params.append(r["send_id"])
+            conn.execute(
+                f"UPDATE campaign_sends SET {', '.join(update_sql)} WHERE id=%s",
+                tuple(update_params)
+            )
+            conn.commit()
+            sent += 1
+            contact_summary = ", ".join(c for c in ["email" if email_sent else None, "sms" if sms_sent else None] if c)
+            click.secho(f"  [{i}/{total}] ✓  {r.get('email') or phone}  ({contact_summary})", fg="green")
 
         time.sleep(interval)
 

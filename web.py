@@ -8,6 +8,8 @@ Usage:
 """
 
 import base64
+import hashlib
+import hmac
 
 from flask import Flask, render_template_string, request, Response
 from db import get_conn, init_db
@@ -157,6 +159,47 @@ def track_open(campaign_id: str, send_id: int):
                     headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
+def _make_unsubscribe_token(lead_id: str, email: str) -> str:
+    import os
+    secret = os.getenv("UNSUBSCRIBE_SECRET", "change-me").encode("utf-8")
+    return hmac.new(secret, f"{lead_id}:{email}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+@app.route("/unsubscribe")
+def unsubscribe():
+    lead_id = request.args.get("id", "").strip()
+    token = request.args.get("t", "").strip()
+    if not lead_id or not token:
+        return Response("Invalid unsubscribe link.", status=400)
+
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT email, unsubscribed_at FROM leads WHERE id = %s",
+        (lead_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return Response("Invalid unsubscribe link.", status=404)
+
+    expected = _make_unsubscribe_token(lead_id, row["email"] or "")
+    if token != expected:
+        conn.close()
+        return Response("Invalid unsubscribe token.", status=403)
+
+    if row["unsubscribed_at"] is None:
+        conn.execute(
+            "UPDATE leads SET unsubscribed_at = NOW() WHERE id = %s",
+            (lead_id,)
+        )
+        conn.commit()
+        message = "You have been unsubscribed and will no longer receive these messages."
+    else:
+        message = "You are already unsubscribed."
+
+    conn.close()
+    return f"<html><body><h1>Unsubscribed</h1><p>{message}</p></body></html>\n"
+
+
 @app.route("/")
 def index():
     init_db()
@@ -181,7 +224,7 @@ def index():
     join_clause = """
         FROM leads l
         LEFT JOIN lead_statuses ls ON ls.id = l.status_id
-        LEFT JOIN source        sf ON sf.id = l.source_id
+        LEFT JOIN source_files  sf ON sf.id = l.source_file_id
     """
 
     # Build WHERE

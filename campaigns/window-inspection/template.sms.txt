@@ -1,0 +1,1 @@
+Hi {{ first_name }}, this is Chris from Apex Energy Solutions. We can help with your {{ city }} property windows. Reply here or call us.

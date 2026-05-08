@@ -3,9 +3,48 @@
   "name": "Window Inspection Spring 2026",
   "subject": "Window Inspection for {{ city }} Homeowners",
   "from_name": "Apex Energy Solutions",
-  "from_email": "Chris.burkhardt@apexenergygroup.com",
-  "reply_to": "Chris.burkhardt@apexenergygroup.com",
+  "from_email": "chris@windowsbyburkhardt.com",
+  "reply_to": "chris@windowsbyburkhardt.com",
   "utm_source": "email",
   "utm_medium": "email",
-  "utm_campaign": "window-inspection-spring-2026"
+  "utm_campaign": "window-inspection-spring-2026",
+  "default_delay_days": 7,
+  "drip_steps": [
+    {
+      "name": "Week 1",
+      "channel": "both",
+      "delay_days": 7,
+      "subject": "Free window inspection for {{ city }} homeowners",
+      "template_html": "emails/email-1.html",
+      "template_txt": "emails/email-1.txt",
+      "template_sms": "sms/sms-1.txt"
+    },
+    {
+      "name": "Week 2",
+      "channel": "both",
+      "delay_days": 7,
+      "subject": "Follow-up: window performance review in {{ city }}",
+      "template_html": "emails/email-2.html",
+      "template_txt": "emails/email-2.txt",
+      "template_sms": "sms/sms-2.txt"
+    },
+    {
+      "name": "Week 3",
+      "channel": "both",
+      "delay_days": 7,
+      "subject": "Upgrade comfort with a free window inspection",
+      "template_html": "emails/email-3.html",
+      "template_txt": "emails/email-3.txt",
+      "template_sms": "sms/sms-3.txt"
+    },
+    {
+      "name": "Week 4",
+      "channel": "both",
+      "delay_days": 7,
+      "subject": "Last reminder: book your free inspection",
+      "template_html": "emails/email-4.html",
+      "template_txt": "emails/email-4.txt",
+      "template_sms": "sms/sms-4.txt"
+    }
+  ]
 }
