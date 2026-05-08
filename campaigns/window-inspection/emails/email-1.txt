@@ -1,0 +1,20 @@
+Hi {{ first_name }},
+
+This week I wanted to offer a free window inspection for your {{ city }} home.
+
+A quick, no-pressure review can help pinpoint drafts, leaks, and energy loss before the weather changes.
+
+If you’d like, I’ll stop by and give you a clear repair/replacement plan with pricing.
+
+What I offer:
+  • Free in-home inspection
+  • Honest, no-pressure recommendations
+  • Local service for {{ city }} homeowners
+
+Schedule your free inspection here:
+https://windowsbyburkhardt.com/#schedule
+
+Apex Energy Solutions
+
+You're receiving this because your address is in our {{ city }} service area.
+To stop receiving emails, reply with "unsubscribe" or use the unsubscribe link.

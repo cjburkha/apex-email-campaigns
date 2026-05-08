@@ -1,0 +1,62 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SESEmailSending",
+      "Effect": "Allow",
+      "Action": [
+        "sesv2:SendEmail",
+        "sesv2:GetConfigurationSet",
+        "sesv2:GetConfigurationSetEventDestinations",
+        "sesv2:GetAccount",
+        "ses:VerifyEmailIdentity",
+        "ses:GetAccountSendingEnabled",
+        "ses:ListVerifiedEmailAddresses"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PinpointSMSSending",
+      "Effect": "Allow",
+      "Action": [
+        "mobiletargeting:SendMessages",
+        "mobiletargeting:GetSmsChannel",
+        "mobiletargeting:UpdateSmsChannel",
+        "mobiletargeting:GetApp"
+      ],
+      "Resource": [
+        "arn:aws:mobiletargeting:*:*:apps/*"
+      ]
+    },
+    {
+      "Sid": "SNSPublish",
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": "arn:aws:sns:*:*:apex-campaigns*"
+    },
+    {
+      "Sid": "SQSPoll",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:ChangeMessageVisibility"
+      ],
+      "Resource": "arn:aws:sqs:*:*:apex-campaigns*"
+    },
+    {
+      "Sid": "STSAssumeRole",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -125,7 +125,7 @@ def init_db() -> None:
     conn = get_conn()
     try:
       conn.executescript("""
-        CREATE TABLE IF NOT EXISTS source (
+        CREATE TABLE IF NOT EXISTS source_files (
             id    SERIAL PRIMARY KEY,
             path  TEXT   NOT NULL UNIQUE
         );
@@ -157,12 +157,13 @@ def init_db() -> None:
             latitude         DOUBLE PRECISION,
             longitude        DOUBLE PRECISION,
             status_id        INTEGER REFERENCES lead_statuses(id),
+            unsubscribed_at  TIMESTAMPTZ,
             note             TEXT,
             form_data        TEXT,
             updated_at       TEXT,
             inserted_at      TEXT,
             deleted          TEXT,
-            source_id        INTEGER REFERENCES source(id),
+            source_file_id   INTEGER REFERENCES source_files(id),
             test_lead        INTEGER NOT NULL DEFAULT 0
         );
 
@@ -181,14 +182,20 @@ def init_db() -> None:
             lead_id       INTEGER     NOT NULL REFERENCES leads(id),
             status        TEXT        NOT NULL DEFAULT 'queued',
             message_id    TEXT,
+            sms_message_id TEXT,
             queued_at     TIMESTAMPTZ DEFAULT NOW(),
             sent_at       TIMESTAMPTZ,
+            sms_sent_at   TIMESTAMPTZ,
             delivered_at  TIMESTAMPTZ,
+            sms_delivered_at TIMESTAMPTZ,
             opened_at     TIMESTAMPTZ,
             clicked_at    TIMESTAMPTZ,
             bounced_at    TIMESTAMPTZ,
+            sms_status    TEXT,
             failed_reason TEXT,
             bounce_type   TEXT,
+            drip_step     INTEGER     NOT NULL DEFAULT 1,
+            next_send_at  TIMESTAMPTZ,
             UNIQUE(campaign_id, lead_id)
         );
 
@@ -196,6 +203,15 @@ def init_db() -> None:
             ON campaign_sends(message_id);
         CREATE INDEX IF NOT EXISTS idx_cs_campaign_status
             ON campaign_sends(campaign_id, status)
+
+        ALTER TABLE leads ADD COLUMN IF NOT EXISTS unsubscribed_at TIMESTAMPTZ;
+
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_message_id TEXT;
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMPTZ;
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_delivered_at TIMESTAMPTZ;
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_status TEXT;
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS drip_step INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS next_send_at TIMESTAMPTZ;
     """)
     except Exception as exc:
         # Regular app users (cburkhardt, mgeary) don't have CREATE on the schema.

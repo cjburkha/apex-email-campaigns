@@ -1,0 +1,1 @@
+Hi {{ first_name }}, this is Chris from Apex Energy Solutions. I can send someone to inspect your windows in {{ city }} and share a pricing plan. Reply here or visit https://windowsbyburkhardt.com/#schedule

@@ -1,32 +1,30 @@
-Hey {{ first_name }},
+Hi {{ first_name }},
 
-I know it has been a while since we had an appointment scheduled with you
-to help you with your window and door problems, so I wanted to check in.
+Ready for better windows in {{ city }}?
 
-A lot of homeowners we meet end up coming back months later when the timing
-feels right, and I figured that might be the case for you too.
+We're offering FREE, no-pressure in-home window inspections to homeowners
+in the {{ city }} area right now.
 
-If you're still considering updates, we'd be happy to take another look and
-provide updated options and pricing!
+One of our local consultants will come to you, assess your windows, and walk
+you through your options — zero obligation.
 
-To make it worth your while, we're also including an additional 5% off for
-projects like yours on top of any current offers.
-
-No pressure at all. I just wanted to make sure you knew this option was
-available in case now is a better time.
-
-WHY APEX ENERGY SOLUTIONS?
+WHY WINDOWS BY BURKHARDT?
 
   ✓ Free in-home consultation — we come to you
   ✓ No high-pressure sales tactics, ever
-  ✓ Backed by Great Day Improvements, one of America's top home improvement brands
-  ✓ Financing options available — no large upfront cost
+  ✓ Backed by Apex Energy Group — one of America's fastest-growing
+    home improvement companies
+  ✓ Family-owned, locally operated in {{ city }}
 
 Schedule your free inspection here:
 https://windowsbyburkhardt.com/#schedule
 
+"I didn't think I could be giddy about windows, but I love our windows!"
+  — Apex Energy Group customer
+
 ──────────────────────────────────────────────────────────────
-Apex Energy Solutions
+Windows by Burkhardt · Co-branded with Apex Energy Group
 
 You're receiving this because your address is in our {{ city }} service area.
+This is a one-time outreach — we will not spam you.
 To stop receiving emails, reply with "unsubscribe".

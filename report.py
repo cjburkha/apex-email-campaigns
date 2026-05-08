@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-report.py — Sync SES events then print campaign statistics.
+report.py — Print campaign send and engagement statistics.
 
 Usage:
     python report.py                          # all campaigns
     python report.py --campaign window-inspection-apr-2026
-    python report.py --no-sync               # skip SES sync
 """
 
-import os
 import click
-import boto3
-from dotenv import load_dotenv
 from db import get_conn, init_db
-from sync_events import _process_batch
-
-load_dotenv()
 
 
 def _pct(n, total) -> str:
@@ -27,23 +20,11 @@ def _pct(n, total) -> str:
 @click.command()
 @click.option("--campaign", default=None,
               help="Filter to a specific campaign ID")
-@click.option("--no-sync", is_flag=True,
-              help="Skip syncing SES events before reporting")
-def report(campaign: str, no_sync: bool):
-    """Sync SES events then show send/delivery/engagement stats per campaign."""
+def report(campaign: str):
+    """Show send/delivery/engagement stats per campaign."""
     init_db()
-    conn = get_conn()
-
-    if not no_sync:
-        queue_url = os.getenv("SES_EVENTS_QUEUE_URL")
-        if queue_url:
-            sqs = boto3.client("sqs", region_name=os.getenv("AWS_REGION", "us-east-1"))
-            n = _process_batch(sqs, queue_url, conn)
-            if n:
-                click.secho(f"  ↻  Synced {n} event(s) from SES\n", fg="cyan")
-        else:
-            click.secho("  ⚠  SES_EVENTS_QUEUE_URL not set, skipping sync\n", fg="yellow")
-    where = "WHERE cs.campaign_id = %s" if campaign else ""
+    conn  = get_conn()
+    where = "WHERE r.campaign_id = ?" if campaign else ""
     params = (campaign,) if campaign else ()
 
     rows = conn.execute(f"""
@@ -52,17 +33,17 @@ def report(campaign: str, no_sync: bool):
             c.name,
             c.from_email,
             c.created_at,
-            COUNT(*)                                                 AS total,
-            COUNT(*) FILTER (WHERE cs.status != 'queued')            AS sent,
-            COUNT(*) FILTER (WHERE cs.status = 'delivered')          AS delivered,
-            COUNT(*) FILTER (WHERE cs.opened_at  IS NOT NULL)        AS opened,
-            COUNT(*) FILTER (WHERE cs.clicked_at IS NOT NULL)        AS clicked,
-            COUNT(*) FILTER (WHERE cs.status = 'bounced')            AS bounced,
-            COUNT(*) FILTER (WHERE cs.status = 'complained')         AS complained,
-            COUNT(*) FILTER (WHERE cs.status = 'failed')             AS failed,
-            COUNT(*) FILTER (WHERE cs.status = 'queued')             AS queued
+            COUNT(*)                                    AS total,
+            SUM(r.status != 'queued')                   AS sent,
+            SUM(r.status = 'delivered')                 AS delivered,
+            SUM(r.opened_at  IS NOT NULL)               AS opened,
+            SUM(r.clicked_at IS NOT NULL)               AS clicked,
+            SUM(r.status = 'bounced')                   AS bounced,
+            SUM(r.status = 'complained')                AS complained,
+            SUM(r.status = 'failed')                    AS failed,
+            SUM(r.status = 'queued')                    AS queued
         FROM campaigns c
-        JOIN campaign_sends cs ON cs.campaign_id = c.id
+        JOIN recipients r ON r.campaign_id = c.id
         {where}
         GROUP BY c.id
         ORDER BY c.created_at DESC
