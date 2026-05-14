@@ -19,12 +19,16 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import boto3
 import click
 from dotenv import load_dotenv
-from jinja2 import Environment, FileSystemLoader, Template
+from jinja2 import Environment, FileSystemLoader, Template, TemplateNotFound
 
 from db import get_conn, init_db
-from send import _add_utm, _normalize_phone, _make_unsubscribe_token, _unsubscribe_url, _send_sms
+from send import _add_utm, _add_utm_text, _normalize_phone, _make_unsubscribe_token, _unsubscribe_url, _send_sms, _pixel_html, _html_to_text
 
 load_dotenv()
+
+
+SHORTLINK_HOST = os.getenv("SHORTLINK_HOST", "https://windowsbyburkhardt.com")
+SHORTLINK_TARGET_FRAGMENT = "#schedule"
 
 
 def _load_campaign(campaign: str):
@@ -41,26 +45,56 @@ def _load_campaign(campaign: str):
     return campaign_dir, config, env
 
 
-def _render_step_templates(step: dict, config: dict, env: Environment, vars: dict):
+def _render_step_templates(step: dict, config: dict, env: Environment, vars: dict, campaign_id: str,
+                           lead_id: int | None = None, week: int | None = None):
     subject = Template(step.get("subject", config["subject"]).strip()).render(**vars)
     html = None
     txt = None
     sms = None
 
     html_file = step.get("template_html") or config.get("template_html") or "template.html"
-    txt_file = step.get("template_txt") or config.get("template_txt") or "template.txt"
+    txt_file = step.get("template_txt") or config.get("template_txt")
     sms_file = step.get("template_sms") or config.get("sms_template")
 
+    # utm_campaign is sourced from the campaigns table id (one source of truth);
+    # source/medium remain configurable per campaign in config.json.
+    utm = {
+        "utm_source":   config.get("utm_source",   "email"),
+        "utm_medium":   config.get("utm_medium",   "email"),
+        "utm_campaign": campaign_id,
+    }
+    # short_url_sms / short_url_email may be pre-set by the caller (run-all knows
+    # current_week + short_slug). Fall back to the bare site URL so any template
+    # still renders even if shortlinks aren't wired for this campaign.
+    vars.setdefault("short_url_sms",   f"{SHORTLINK_HOST}/#schedule")
+    vars.setdefault("short_url_email", f"{SHORTLINK_HOST}/#schedule")
+    # Backwards-compat alias for any template that still uses {{ short_url }}.
+    vars.setdefault("short_url", vars["short_url_sms"])
+
     if html_file:
-        html = _add_utm(env.get_template(html_file).render(**vars), {
-            "utm_source": config.get("utm_source", "email"),
-            "utm_medium": config.get("utm_medium", "email"),
-            "utm_campaign": config.get("utm_campaign", "drip"),
-        })
+        try:
+            html = _add_utm(env.get_template(html_file).render(**vars), utm)
+            # Append open-tracking pixel just before </body> (or end if no body tag)
+            if lead_id is not None and week is not None:
+                pixel = _pixel_html(campaign_id, lead_id, week)
+                html = html.replace("</body>", pixel + "</body>", 1) if "</body>" in html else (html + pixel)
+        except TemplateNotFound:
+            html = None
+    # Plain-text fallback: explicit template_txt > implicit template.txt > derived from html.
+    # SES multipart/alternative wants a text part for deliverability + watch/screen-reader UX.
     if txt_file:
-        txt = env.get_template(txt_file).render(**vars)
+        try:
+            txt = _add_utm_text(env.get_template(txt_file).render(**vars), utm)
+        except TemplateNotFound:
+            pass
+    if txt is None:
+        try:
+            txt = _add_utm_text(env.get_template("template.txt").render(**vars), utm)
+        except TemplateNotFound:
+            if html:
+                txt = _html_to_text(html)
     if sms_file:
-        sms = env.get_template(sms_file).render(**vars)
+        sms = _add_utm_text(env.get_template(sms_file).render(**vars), utm)
 
     return subject, html, txt, sms
 
@@ -101,8 +135,19 @@ def enroll(campaign: str, sql_query: str, limit: int, dry_run: bool):
     campaign_id = config.get("id", campaign)
 
     if not sql_query:
-        click.echo("Enter a SQL query to select leads for drip enrollment:")
-        sql_query = click.prompt("Query")
+        # Try campaign's stored enrollment_query first (cohort campaigns)
+        conn0 = get_conn()
+        row = conn0.execute(
+            "SELECT enrollment_query FROM campaigns WHERE id = %s",
+            (campaign_id,),
+        ).fetchone()
+        conn0.close()
+        if row and row.get("enrollment_query"):
+            sql_query = row["enrollment_query"]
+            click.echo(f"  using enrollment_query from campaigns table for {campaign_id}")
+        else:
+            click.echo("Enter a SQL query to select leads for drip enrollment:")
+            sql_query = click.prompt("Query")
 
     conn = get_conn()
     try:
@@ -205,7 +250,7 @@ def run(campaign: str, limit: int, dry_run: bool):
             phone=_normalize_phone((r.get("phone_primary") or r.get("phone_secondary") or "")),
         )
 
-        subject, html, txt, sms = _render_step_templates(step, config, env, vars)
+        subject, html, txt, sms = _render_step_templates(step, config, env, vars, campaign_id, r["lead_id"], step_idx)
         reply_to = config.get("reply_to", config["from_email"])
         headers = _prepare_headers(reply_to, r["lead_id"], vars["email"] or "")
 
@@ -289,6 +334,220 @@ def run(campaign: str, limit: int, dry_run: bool):
 
     conn.close()
     click.secho(f"\n✅ Drip run complete: {sent} sent, {failed} failed\n", fg="green")
+
+
+@drip.command(name="run-all")
+@click.option("--dry-run", is_flag=True, help="Preview the cohort step without writing to DB or sending.")
+@click.option("--force", is_flag=True, help="Advance even if last_advanced_at is within the past 6 days.")
+def run_all(dry_run: bool, force: bool):
+    """Cohort runner for table-driven campaigns.
+
+    For each campaign WHERE active = TRUE AND current_week < weeks AND enrollment_query IS NOT NULL,
+    advance current_week by 1 and send that step's message to every enrolled lead.
+    Skips campaigns whose last_advanced_at is within the past 6 days unless --force.
+    """
+    init_db()
+    conn = get_conn()
+
+    campaigns = conn.execute(
+        """
+        SELECT id, name, weeks, current_week, last_advanced_at, short_slug
+          FROM campaigns
+         WHERE active = TRUE
+           AND enrollment_query IS NOT NULL
+           AND current_week < weeks
+         ORDER BY id
+        """
+    ).fetchall()
+
+    if not campaigns:
+        click.secho("✅ No active cohort campaigns are due.", fg="green")
+        conn.close()
+        return
+
+    ses = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
+
+    for camp in campaigns:
+        camp_id = camp["id"]
+        next_week = camp["current_week"] + 1
+
+        # Throttle: don't fire twice in the same week unless --force
+        if camp["last_advanced_at"] and not force:
+            row = conn.execute(
+                "SELECT (NOW() - %s) < INTERVAL '6 days' AS too_soon",
+                (camp["last_advanced_at"],),
+            ).fetchone()
+            if row and row.get("too_soon"):
+                click.secho(f"  ⏩ {camp_id}: skipped (last_advanced_at < 6 days ago)", fg="yellow")
+                continue
+
+        # Load this campaign's templates from config.json
+        try:
+            campaign_dir, config, env = _load_campaign(camp_id)
+        except click.ClickException:
+            # Try directory by short slug derived from id (drop trailing -<month>-<year>)
+            campaign_dir, config, env = _load_campaign(_dir_slug(camp_id))
+
+        steps = config.get("drip_steps") or []
+        if next_week < 1 or next_week > len(steps):
+            click.secho(f"  ✗ {camp_id}: weeks={camp['weeks']} but config has {len(steps)} steps; skipping", fg="red")
+            continue
+        step = steps[next_week - 1]
+
+        # All enrolled, opt-in, non-test leads for this campaign
+        leads = conn.execute(
+            """
+            SELECT cs.id AS send_id, l.id AS lead_id, l.first_name, l.last_name,
+                   l.email, l.city, l.state, l.postal_code,
+                   l.phone_primary, l.phone_secondary
+              FROM campaign_sends cs
+              JOIN leads l ON l.id = cs.lead_id
+             WHERE cs.campaign_id = %s
+               AND l.unsubscribed_at IS NULL
+               AND l.test_lead = 0
+            """,
+            (camp_id,),
+        ).fetchall()
+
+        click.secho(f"\n  ▶ {camp_id}: week {next_week}/{camp['weeks']}  → {len(leads):,} enrolled leads", fg="cyan")
+
+        if dry_run:
+            click.echo(f"     DRY-RUN: would send '{step.get('name', f'step {next_week}')}' to {len(leads):,} leads")
+            continue
+
+        sent = failed = 0
+        for r in leads:
+            vars = dict(
+                first_name=r["first_name"] or "",
+                last_name=r["last_name"] or "",
+                email=r["email"],
+                city=r["city"] or "",
+                state=r["state"] or "",
+                postal_code=r["postal_code"] or "",
+                phone=_normalize_phone((r.get("phone_primary") or r.get("phone_secondary") or "")),
+            )
+            if camp.get("short_slug"):
+                vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   next_week)}"
+                vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', next_week)}"
+            subject, html, txt, sms = _render_step_templates(step, config, env, vars, camp_id, r["lead_id"], next_week)
+            reply_to = config.get("reply_to", config["from_email"])
+            headers = _prepare_headers(reply_to, r["lead_id"], vars["email"] or "")
+
+            channel = step.get("channel", "email").lower()
+            email_ok = sms_ok = False
+            errors: list[str] = []
+
+            if channel in ("email", "both") and vars["email"] and (html or txt):
+                try:
+                    body = {}
+                    if txt: body["Text"] = {"Data": txt, "Charset": "UTF-8"}
+                    if html: body["Html"] = {"Data": html, "Charset": "UTF-8"}
+                    ses.send_email(
+                        FromEmailAddress=f"{config['from_name']} <{config['from_email']}>",
+                        Destination={"ToAddresses": [vars["email"]]},
+                        ReplyToAddresses=[reply_to],
+                        Content={"Simple": {
+                            "Subject": {"Data": subject, "Charset": "UTF-8"},
+                            "Body": body,
+                            "Headers": headers,
+                        }},
+                        ConfigurationSetName=os.getenv("SES_CONFIG_SET", "apex-campaigns"),
+                    )
+                    email_ok = True
+                except Exception as exc:
+                    errors.append(f"email: {exc}")
+
+            if channel in ("sms", "both") and sms and vars["phone"]:
+                try:
+                    _send_sms(vars["phone"], sms)
+                    sms_ok = True
+                except Exception as exc:
+                    errors.append(f"sms: {exc}")
+
+            if email_ok or sms_ok:
+                sent += 1
+            else:
+                failed += 1
+
+            time.sleep(0.2)
+
+        # Advance the cohort
+        conn.execute(
+            "UPDATE campaigns SET current_week = %s, last_advanced_at = NOW() WHERE id = %s",
+            (next_week, camp_id),
+        )
+        conn.commit()
+        click.secho(f"     ✓ advanced to week {next_week}: {sent:,} sent, {failed:,} failed", fg="green")
+
+    conn.close()
+
+
+def _dir_slug(campaign_id: str) -> str:
+    """Strip trailing -mon-year (e.g. '-may-2026') from a campaign id to get its dir slug."""
+    import re
+    return re.sub(r"-[a-z]{3}-\d{4}$", "", campaign_id)
+
+
+def _build_target_url(campaign_id: str, week: int, channel: str) -> str:
+    """Long URL the redirect resolves to, with channel-correct UTMs.
+
+    channel ∈ {'sms', 'email'} — drives utm_source AND utm_medium so click
+    attribution in GA4 / Meta matches where the click actually came from.
+    """
+    return (
+        f"{SHORTLINK_HOST}/"
+        f"?utm_source={channel}&utm_medium={channel}"
+        f"&utm_campaign={campaign_id}&utm_content=week-{week}"
+        f"{SHORTLINK_TARGET_FRAGMENT}"
+    )
+
+
+def _slug_for(short_slug: str, channel: str, week: int) -> str:
+    """Per-channel slug, e.g. 'spring2026-sms-1' or 'spring2026-em-1'."""
+    suffix = "sms" if channel == "sms" else "em"
+    return f"{short_slug}-{suffix}-{week}"
+
+
+@drip.command(name="sync-shortlinks")
+def sync_shortlinks():
+    """Generate / refresh shortlinks rows for every campaign with short_slug set.
+
+    For each (campaign, week N) creates TWO slugs (one per channel):
+      - {short_slug}-sms-{N} → target with utm_source=sms
+      - {short_slug}-em-{N}  → target with utm_source=email
+    Idempotent: existing slugs get target_url refreshed.
+    """
+    init_db()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, short_slug, weeks FROM campaigns WHERE short_slug IS NOT NULL"
+    ).fetchall()
+    if not rows:
+        click.secho("No campaigns with short_slug set.", fg="yellow")
+        conn.close()
+        return
+    written = 0
+    for r in rows:
+        for week in range(1, r["weeks"] + 1):
+            for channel in ("sms", "email"):
+                slug = _slug_for(r["short_slug"], channel, week)
+                target = _build_target_url(r["id"], week, channel)
+                conn.execute(
+                    """
+                    INSERT INTO shortlinks (slug, target_url, campaign_id, week)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (slug) DO UPDATE
+                      SET target_url  = EXCLUDED.target_url,
+                          campaign_id = EXCLUDED.campaign_id,
+                          week        = EXCLUDED.week
+                    """,
+                    (slug, target, r["id"], week),
+                )
+                written += 1
+                click.echo(f"  {slug:30s} -> {target}")
+    conn.commit()
+    conn.close()
+    click.secho(f"\n✅  {written} shortlink(s) synced", fg="green")
 
 
 if __name__ == "__main__":

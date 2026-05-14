@@ -1,0 +1,2 @@
+{{ first_name }}, Chris from Apex Windows. Ready to continue with replacement windows? Reply or visit {{ short_url }} 
+

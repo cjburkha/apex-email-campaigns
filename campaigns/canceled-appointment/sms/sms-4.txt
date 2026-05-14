@@ -1,0 +1,1 @@
+{{ first_name }}, last note - would you like a free window inspection in {{ city }}? Reply or visit {{ short_url }}.
