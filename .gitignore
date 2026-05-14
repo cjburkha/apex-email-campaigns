@@ -8,3 +8,4 @@ venv/
 .venv/
 *_backup_*.sql
 *_backup_*.dump
+campaigns/**/*.zip
