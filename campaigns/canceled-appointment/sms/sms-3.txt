@@ -1,0 +1,1 @@
+{{ first_name }}, drafty windows add to your energy bills. Free inspection in {{ city }}? Reply or visit {{ short_url }}

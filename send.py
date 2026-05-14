@@ -21,6 +21,8 @@ import json
 import os
 import re
 import time
+from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -36,17 +38,53 @@ load_dotenv()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+# Path pattern for shortlink slugs (e.g. /spring2026-em-1). When a URL's path
+# matches this, UTM tagging is skipped — the slug-redirect adds the right UTMs
+# server-side, and inline tagging would bloat SMS char counts and double-encode
+# attribution in HTML.
+_SLUG_PATH_RE = re.compile(r'^/[a-z0-9]+(?:-[a-z0-9]+)+$')
+
+
 def _add_utm(html: str, utm: dict) -> str:
-    """Append UTM params to every http(s) href in the HTML."""
+    """Append UTM params to every http(s) href in the HTML.
+
+    Slug-shaped paths (handled by the redirect server) are skipped so we don't
+    double-tag attribution.
+    """
     def _rewrite(match):
         url = match.group(1)
         parsed = urlparse(url)
+        if _SLUG_PATH_RE.match(parsed.path):
+            return f'href="{url}"'
         qs = parse_qs(parsed.query, keep_blank_values=True)
         for k, v in utm.items():
             qs[k] = [v]
         new_qs = urlencode({k: v[0] for k, v in qs.items()})
         return f'href="{urlunparse(parsed._replace(query=new_qs))}"'
     return re.sub(r'href="(https?://[^"]+)"', _rewrite, html)
+
+
+def _add_utm_text(text: str, utm: dict) -> str:
+    """Append UTM params to every bare http(s) URL in plain text / SMS.
+
+    Slug-shaped paths are skipped (see _add_utm).
+    """
+    def _rewrite(match):
+        url = match.group(0)
+        # strip trailing punctuation likely not part of the URL
+        trailing = ""
+        while url and url[-1] in '.,;:!?)]}>"\'':
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        parsed = urlparse(url)
+        if _SLUG_PATH_RE.match(parsed.path):
+            return url + trailing
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        for k, v in utm.items():
+            qs[k] = [v]
+        new_qs = urlencode({k: v[0] for k, v in qs.items()})
+        return urlunparse(parsed._replace(query=new_qs)) + trailing
+    return re.sub(r'https?://[^\s<>"\']+', _rewrite, text)
 
 def _normalize_phone(phone: str) -> str:
     if not phone:
@@ -66,25 +104,139 @@ def _make_unsubscribe_token(lead_id: int, email: str) -> str:
     return hmac.new(secret, f"{lead_id}:{email}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _make_pixel_token(campaign_id: str, lead_id: int, week: int) -> str:
+    secret = os.getenv("PIXEL_SECRET", os.getenv("UNSUBSCRIBE_SECRET", "change-me")).encode("utf-8")
+    msg = f"{campaign_id}:{lead_id}:{week}".encode("utf-8")
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()[:16]
+
+
+def _pixel_url(campaign_id: str, lead_id: int, week: int) -> str:
+    base = os.getenv("PIXEL_BASE_URL", "https://windowsbyburkhardt.com").rstrip("/")
+    tok = _make_pixel_token(campaign_id, lead_id, week)
+    return f"{base}/t/o/{campaign_id}/{lead_id}/{week}/{tok}"
+
+
+def _pixel_html(campaign_id: str, lead_id: int, week: int) -> str:
+    return (
+        f'<img src="{_pixel_url(campaign_id, lead_id, week)}" '
+        'width="1" height="1" style="display:none;border:0;" alt="" />'
+    )
+
+
+# ── HTML → plain text fallback ───────────────────────────────────────────────
+# Used to auto-generate a text/plain part for SES multipart/alternative when a
+# campaign step ships only an .html template. Tuned for the table-based email
+# layouts we use (header / hero p / <tr><td>✓ bullet</td></tr> / CTA <a>).
+class _HtmlToText(HTMLParser):
+    _BLOCK    = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "blockquote", "li"}
+    _SKIP     = {"style", "script", "head", "title"}
+    _INVISIBLE = {"img"}  # tracking pixel etc.
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip_depth = 0
+        self._href = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self.skip_depth += 1
+            return
+        if tag in self._INVISIBLE:
+            # Surface the image's alt text (e.g. brand logo) so plaintext
+            # readers and image-blocked clients still see the branding.
+            # Tracking pixels use alt="" so they remain silent.
+            alt = dict(attrs).get("alt", "").strip()
+            if alt:
+                self.parts.append(alt)
+            return
+        if tag == "br":
+            self.parts.append("\n")
+        elif tag == "li":
+            self.parts.append("  • ")
+        elif tag == "a":
+            self._href = dict(attrs).get("href")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP:
+            self.skip_depth -= 1
+            return
+        if tag == "a" and self._href and self._href.startswith("http"):
+            # Render <a>Schedule</a> → "Schedule (https://…)"
+            self.parts.append(f" ({self._href})")
+            self._href = None
+        elif tag in self._BLOCK:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if self.skip_depth == 0:
+            self.parts.append(data)
+
+
+def _html_to_text(html: str) -> str:
+    """Render HTML to a readable plain-text fallback. Stdlib only, no deps."""
+    p = _HtmlToText()
+    p.feed(html)
+    text = unescape("".join(p.parts))
+    # Replace ✓ glyph (visual checkmark in bullets) with a plain bullet
+    text = text.replace("✓", "•")
+    # The HTML formatting puts whitespace+newlines between <span>✓</span> and the
+    # bullet text — collapse those so each bullet is on a single line.
+    text = re.sub(r"•\s*\n\s*", "• ", text)
+    # Per-line strip + intra-line whitespace collapse
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.split("\n")]
+    # Collapse runs of blank lines to a single blank line
+    out = []
+    blank = False
+    for ln in lines:
+        if not ln:
+            if not blank:
+                out.append("")
+            blank = True
+        else:
+            out.append(ln)
+            blank = False
+    return "\n".join(out).strip() + "\n"
+
+
 def _unsubscribe_url(lead_id: int, token: str) -> str:
     base = os.getenv("UNSUBSCRIBE_BASE_URL", "https://windowsbyburkhardt.com/unsubscribe")
     return f"{base}?id={lead_id}&t={token}"
 
 
 def _send_sms(phone_number: str, message: str):
-    """Send an SMS via Twilio or Pinpoint depending on SMS_PROVIDER env var."""
-    provider = os.getenv("SMS_PROVIDER", "twilio").lower()
+    """Send an SMS via Mailchimp Transactional (Mandrill) or AWS Pinpoint
+    depending on SMS_PROVIDER env var. Returns (message_id, status)."""
+    provider = os.getenv("SMS_PROVIDER", "mailchimp").lower()
 
-    if provider == "twilio":
-        from twilio.rest import Client  # noqa: PLC0415
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    if provider == "mailchimp":
+        import requests  # noqa: PLC0415
+        api_key = os.getenv("MAILCHIMP_TRANSACTIONAL_API_KEY")
         from_number = os.getenv("SMS_ORIGINATING_NUMBER")
-        if not account_sid or not auth_token or not from_number:
-            raise RuntimeError("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and SMS_ORIGINATING_NUMBER must be set in .env")
-        client = Client(account_sid, auth_token)
-        msg = client.messages.create(body=message, from_=from_number, to=phone_number)
-        return msg.sid, msg.status
+        if not api_key or not from_number:
+            raise RuntimeError("MAILCHIMP_TRANSACTIONAL_API_KEY and SMS_ORIGINATING_NUMBER must be set in .env")
+        resp = requests.post(
+            "https://mandrillapp.com/api/1.1/messages/send-sms",
+            json={
+                "key": api_key,
+                "message": {
+                    "sms": {
+                        "text":    message,
+                        "to":      phone_number,
+                        "from":    from_number,
+                        "consent": os.getenv("MAILCHIMP_SMS_CONSENT", "recurring"),
+                    }
+                },
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # Mandrill returns a list of results on success, or an error dict on failure.
+        if isinstance(data, dict) and data.get("status") == "error":
+            raise RuntimeError(f"Mandrill error {data.get('name')}: {data.get('message')}")
+        result = data[0] if isinstance(data, list) and data else {}
+        return result.get("_id"), result.get("status")
 
     # provider == "pinpoint"
     application_id = os.getenv("PINPOINT_APPLICATION_ID")
@@ -247,9 +399,9 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
 
         subject = Template(config["subject"]).render(**vars)
         html    = _add_utm(html_tmpl.render(**vars), utm_base)
-        txt     = txt_tmpl.render(**vars)
+        txt     = _add_utm_text(txt_tmpl.render(**vars), utm_base)
         phone   = _normalize_phone(vars["phone"])
-        sms_body = sms_tmpl.render(**vars) if sms_tmpl and phone else None
+        sms_body = _add_utm_text(sms_tmpl.render(**vars), utm_base) if sms_tmpl and phone else None
         unsubscribe_tok = _make_unsubscribe_token(r["lead_id"], vars["email"])
         unsubscribe_url = _unsubscribe_url(r["lead_id"], unsubscribe_tok)
         reply_to = config.get("reply_to", config["from_email"])

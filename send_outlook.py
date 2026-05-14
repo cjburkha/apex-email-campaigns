@@ -119,14 +119,13 @@ def _add_utm(html: str, utm: dict) -> str:
 
 
 
-TRACKING_BASE = 'https://windowsbyburkhardt.com'
+def _inject_pixel(html: str, campaign_id: str, lead_id: int, week: int = 1) -> str:
+    """Append a signed open-tracking pixel before </body> (or end of html).
 
-
-def _inject_pixel(html: str, campaign_id: str, send_id: int) -> str:
-    pixel = (
-        f'<img src="{TRACKING_BASE}/t/o/{campaign_id}/{send_id}" '
-        'width="1" height="1" style="display:none;border:0;" alt="" />'
-    )
+    Uses send._pixel_html so all senders share the same HMAC-signed URL format.
+    """
+    from send import _pixel_html
+    pixel = _pixel_html(campaign_id, lead_id, week)
     if '</body>' in html:
         return html.replace('</body>', pixel + '</body>', 1)
     return html + pixel
@@ -448,7 +447,7 @@ def send(campaign: str, sql_query: str, dry_run: bool, test_email: str, limit: i
         subject = Template(config["subject"]).render(**vars)
         html    = _add_utm(html_tmpl.render(**vars), utm_base)
         if not dry_run:
-            html = _inject_pixel(html, campaign_id, r['send_id'])
+            html = _inject_pixel(html, campaign_id, r['lead_id'], 1)
         to_name = f"{vars['first_name']} {vars['last_name']}".strip()
 
         if dry_run:
