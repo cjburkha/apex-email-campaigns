@@ -550,5 +550,188 @@ def sync_shortlinks():
     click.secho(f"\n✅  {written} shortlink(s) synced", fg="green")
 
 
+@drip.command(name="stop-rate")
+@click.option("--campaign", default=None, help="Limit to one campaign id (default: all)")
+@click.option("--since", default=None, help="ISO date/time, e.g. 2026-05-15 (default: 7 days ago)")
+def stop_rate(campaign: str | None, since: str | None):
+    """Show SMS opt-out (STOP) rate from inbound webhook events.
+
+    Counts STOPs per matched campaign by joining sms_inbound_events.lead_id to
+    campaign_sends. Unmatched STOPs (no matching lead) are reported separately.
+    """
+    init_db()
+    conn = get_conn()
+
+    where_camp = "AND cs.campaign_id = %s" if campaign else ""
+    where_since = "AND e.received_at >= %s" if since else "AND e.received_at >= NOW() - INTERVAL '7 days'"
+    params: list = []
+    if campaign: params.append(campaign)
+    if since:    params.append(since)
+
+    rows = conn.execute(
+        f"""
+        SELECT cs.campaign_id,
+               COUNT(DISTINCT cs.lead_id)                                        AS sms_recipients,
+               COUNT(DISTINCT e.lead_id) FILTER (WHERE e.is_stop)                AS stops
+          FROM campaign_sends cs
+          LEFT JOIN sms_inbound_events e
+                 ON e.lead_id = cs.lead_id
+                 {where_since}
+         WHERE cs.sms_sent_at IS NOT NULL
+           {where_camp}
+         GROUP BY cs.campaign_id
+         ORDER BY cs.campaign_id
+        """,
+        tuple(params),
+    ).fetchall()
+
+    if not rows:
+        click.secho("No SMS sends found in window.", fg="yellow")
+    else:
+        click.secho(f"\n  {'campaign':<35}  {'sent':>6}  {'stops':>6}  {'rate':>6}", bold=True)
+        for r in rows:
+            n = r["sms_recipients"] or 0
+            s = r["stops"] or 0
+            rate = (s / n * 100) if n else 0
+            color = "red" if rate > 4 else ("yellow" if rate > 2 else "green")
+            click.secho(f"  {r['campaign_id']:<35}  {n:>6,}  {s:>6,}  {rate:>5.2f}%", fg=color)
+
+    unmatched = conn.execute(
+        f"""SELECT COUNT(*) AS n
+              FROM sms_inbound_events e
+             WHERE e.is_stop AND e.lead_id IS NULL
+               {where_since}""",
+        tuple([since] if since else []),
+    ).fetchone()
+    if unmatched and unmatched["n"]:
+        click.secho(f"\n  ⚠ {unmatched['n']} STOP(s) from phones with no matching lead", fg="yellow")
+
+    conn.close()
+
+
+@drip.command(name="test-send")
+@click.option("--campaign", required=True, help="Campaign id (matches campaigns.id)")
+@click.option("--week", required=True, type=int, help="Which drip step to send (1-indexed)")
+@click.option("--channel", type=click.Choice(["email", "sms", "both"]), default=None,
+              help="Override the step's channel (default: use what config.json says)")
+@click.option("--lead-ids", default=None,
+              help="Comma-separated lead ids to limit the send to (default: all test_lead=1 leads)")
+def test_send(campaign: str, week: int, channel: str | None, lead_ids: str | None):
+    """Send a single drip step to test_lead=1 leads without mutating campaign state.
+
+    No campaign_sends rows written; current_week is NOT advanced. Safe to re-run.
+    """
+    init_db()
+    conn = get_conn()
+
+    camp = conn.execute(
+        "SELECT id, name, weeks, short_slug FROM campaigns WHERE id = %s",
+        (campaign,),
+    ).fetchone()
+    if not camp:
+        raise click.ClickException(f"campaign id not found in campaigns table: {campaign}")
+
+    try:
+        campaign_dir, config, env = _load_campaign(camp["id"])
+    except click.ClickException:
+        campaign_dir, config, env = _load_campaign(_dir_slug(camp["id"]))
+
+    steps = config.get("drip_steps") or []
+    if week < 1 or week > len(steps):
+        raise click.ClickException(f"week {week} out of range (config has {len(steps)} steps)")
+    step = steps[week - 1]
+    effective_channel = (channel or step.get("channel", "email")).lower()
+
+    where = "test_lead = 1"
+    params: tuple = ()
+    if lead_ids:
+        ids = tuple(int(x) for x in lead_ids.split(","))
+        where = "test_lead = 1 AND id IN %s"
+        params = (ids,)
+    leads = conn.execute(
+        f"""
+        SELECT id, first_name, last_name, email, city, state, postal_code,
+               phone_primary, phone_secondary
+          FROM leads
+         WHERE {where}
+         ORDER BY id
+        """,
+        params,
+    ).fetchall()
+
+    if not leads:
+        click.secho("No matching test leads.", fg="yellow")
+        conn.close()
+        return
+
+    click.secho(
+        f"\n  ▶ test-send: {camp['id']} week {week} ({effective_channel})  → {len(leads)} test lead(s)\n",
+        fg="cyan",
+    )
+
+    ses = boto3.client("sesv2", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    sent = failed = 0
+
+    for r in leads:
+        vars = dict(
+            first_name=r["first_name"] or "",
+            last_name=r["last_name"] or "",
+            email=r["email"],
+            city=r["city"] or "",
+            state=r["state"] or "",
+            postal_code=r["postal_code"] or "",
+            phone=_normalize_phone((r.get("phone_primary") or r.get("phone_secondary") or "")),
+        )
+        if camp.get("short_slug"):
+            vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   week)}"
+            vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', week)}"
+        subject, html, txt, sms = _render_step_templates(step, config, env, vars, camp["id"], r["id"], week)
+        reply_to = config.get("reply_to", config["from_email"])
+        headers = _prepare_headers(reply_to, r["id"], vars["email"] or "")
+
+        email_ok = sms_ok = False
+        errors: list[str] = []
+
+        if effective_channel in ("email", "both") and vars["email"] and (html or txt):
+            try:
+                body = {}
+                if txt: body["Text"] = {"Data": txt, "Charset": "UTF-8"}
+                if html: body["Html"] = {"Data": html, "Charset": "UTF-8"}
+                ses.send_email(
+                    FromEmailAddress=f"{config['from_name']} <{config['from_email']}>",
+                    Destination={"ToAddresses": [vars["email"]]},
+                    ReplyToAddresses=[reply_to],
+                    Content={"Simple": {
+                        "Subject": {"Data": subject, "Charset": "UTF-8"},
+                        "Body": body,
+                        "Headers": headers,
+                    }},
+                    ConfigurationSetName=os.getenv("SES_CONFIG_SET", "apex-campaigns"),
+                )
+                email_ok = True
+            except Exception as exc:
+                errors.append(f"email: {exc}")
+
+        if effective_channel in ("sms", "both") and sms and vars["phone"]:
+            try:
+                _send_sms(vars["phone"], sms)
+                sms_ok = True
+            except Exception as exc:
+                errors.append(f"sms: {exc}")
+
+        status_bits = []
+        if email_ok: status_bits.append("email→" + (vars["email"] or ""))
+        if sms_ok:   status_bits.append("sms→" + (vars["phone"] or ""))
+        if errors:   status_bits.extend(errors)
+        click.echo(f"    lead {r['id']:>5}  " + ("  ".join(status_bits) if status_bits else "skipped"))
+
+        if email_ok or sms_ok: sent += 1
+        else:                  failed += 1
+        time.sleep(0.2)
+
+    click.secho(f"\n  ✓ {sent} sent, {failed} failed (no DB state mutated)", fg="green" if failed == 0 else "yellow")
+    conn.close()
+
+
 if __name__ == "__main__":
     drip()
