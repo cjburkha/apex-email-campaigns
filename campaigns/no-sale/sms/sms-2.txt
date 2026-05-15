@@ -1,1 +1,1 @@
-{{ first_name }}, financing has changed since we last spoke. New 0% options - reply or visit {{ short_url }}
+{{ first_name }}, window prices and styles have changed a lot in the past year - reply or visit {{ short_url }}
