@@ -1,2 +1,1 @@
-{{ first_name }}, Chris from Apex Windows. Ready to continue with replacement windows? Reply or visit {{ short_url }} 
-
+{{ first_name }}, still thinking about replacing your windows? Apex Energy Solutions can help. See options here: {{ short_url }}
