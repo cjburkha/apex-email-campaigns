@@ -1,1 +1,1 @@
-Hi {{ first_name }}, it’s Chris again. I’m still available to inspect your windows and send a transparent estimate for your {{ city }} home.
+Hi {{ first_name }}, it's Chris again. I'm still available to inspect your windows and send a transparent estimate for your {{ city }} home.

@@ -1,1 +1,1 @@
-{{ first_name }}, drafty windows add to your energy bills. Free inspection in {{ city }}? Reply or visit {{ short_url }}
+{{ first_name }}, quick question - are new windows still on your radar this year? Reply here or visit {{ short_url }}
