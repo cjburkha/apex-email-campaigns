@@ -1,0 +1,42 @@
+{
+  "id": "no-sale-may-2026",
+  "name": "No Sale Re-engagement",
+  "subject": "Window project follow-up for {{ city }}",
+  "from_name": "Windows By Burkhardt",
+  "from_email": "chris@windowsbyburkhardt.com",
+  "reply_to": "chris@windowsbyburkhardt.com",
+  "utm_source": "email",
+  "utm_medium": "email",
+  "utm_campaign": "no-sale-may-2026",
+  "default_delay_days": 7,
+  "drip_steps": [
+    {
+      "name": "Week 1",
+      "channel": "both",
+      "subject": "{{ first_name }}, checking in on your {{ city }} home",
+      "template_html": "emails/email-1.html",
+      "template_sms": "sms/sms-1.txt"
+    },
+    {
+      "name": "Week 2",
+      "channel": "both",
+      "subject": "Window pricing has shifted, {{ first_name }}",
+      "template_html": "emails/email-2.html",
+      "template_sms": "sms/sms-2.txt"
+    },
+    {
+      "name": "Week 3",
+      "channel": "both",
+      "subject": "Are old windows quietly costing you, {{ first_name }}?",
+      "template_html": "emails/email-3.html",
+      "template_sms": "sms/sms-3.txt"
+    },
+    {
+      "name": "Week 4",
+      "channel": "both",
+      "subject": "Last note from us, {{ first_name }}",
+      "template_html": "emails/email-4.html",
+      "template_sms": "sms/sms-4.txt"
+    }
+  ]
+}

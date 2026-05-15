@@ -1,0 +1,1 @@
+{{ first_name }}, financing has changed since we last spoke. New 0% options - reply or visit {{ short_url }}

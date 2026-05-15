@@ -1,0 +1,1 @@
+{{ first_name }}, hope you love your new windows! Quick tip - wipe tracks twice a year. Reply or visit {{ short_url }}

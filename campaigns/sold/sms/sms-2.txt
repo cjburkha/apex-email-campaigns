@@ -1,0 +1,1 @@
+{{ first_name }}, most of our work comes from referrals. Know anyone in {{ city }} needing windows? Reply or visit {{ short_url }}
