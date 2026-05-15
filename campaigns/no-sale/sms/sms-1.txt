@@ -1,1 +1,1 @@
-{{ first_name }}, Chris from Apex Windows. Has anything changed with your windows in {{ city }}? Reply or visit {{ short_url }}
+{{ first_name }}, still considering new windows? Apex Energy Solutions can help. Reply here or visit {{ short_url }}

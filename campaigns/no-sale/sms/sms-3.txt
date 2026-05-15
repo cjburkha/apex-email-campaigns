@@ -1,1 +1,1 @@
-{{ first_name }}, drafty windows quietly add to your bills. Free check in {{ city }}? Reply or visit {{ short_url }}
+{{ first_name }}, many {{ city }} homeowners are upgrading before summer heat, want a free consultation? Reply or visit {{ short_url }}
