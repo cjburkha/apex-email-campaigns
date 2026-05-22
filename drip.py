@@ -510,7 +510,9 @@ def run_all(dry_run: bool, force: bool):
             else:
                 failed += 1
 
-            time.sleep(0.2)
+            # SES production account allows 14/sec; we pace at ~10/sec to leave headroom
+            # for the SES burst bucket and avoid hammering the SMTP boundary.
+            time.sleep(0.1)
 
         # Advance the cohort
         conn.execute(
