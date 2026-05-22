@@ -12,7 +12,7 @@
   "drip_steps": [
     {
       "name": "Week 1",
-      "channel": "both",
+      "channel": "email",
       "delay_days": 7,
       "subject": "Free window inspection for {{ city }} homeowners",
       "template_html": "emails/email-1.html",
@@ -21,7 +21,7 @@
     },
     {
       "name": "Week 2",
-      "channel": "both",
+      "channel": "email",
       "delay_days": 7,
       "subject": "Follow-up: window performance review in {{ city }}",
       "template_html": "emails/email-2.html",
@@ -30,7 +30,7 @@
     },
     {
       "name": "Week 3",
-      "channel": "both",
+      "channel": "email",
       "delay_days": 7,
       "subject": "Upgrade comfort with a free window inspection",
       "template_html": "emails/email-3.html",
@@ -39,7 +39,7 @@
     },
     {
       "name": "Week 4",
-      "channel": "both",
+      "channel": "email",
       "delay_days": 7,
       "subject": "Last reminder: book your free inspection",
       "template_html": "emails/email-4.html",
