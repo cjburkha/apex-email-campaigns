@@ -1,0 +1,97 @@
+name: Sunday Drip
+
+# Sends one drip step for every active cohort campaign whose 6-day cooldown has
+# elapsed. The campaigns table in apex DB controls which campaigns are active.
+# drip.py run-all is idempotent + cooldown-protected, so running this multiple
+# times in the same week is safe (subsequent runs no-op).
+
+on:
+  # 14:00 UTC every Sunday = 9am CDT (summer) / 8am CST (winter).
+  # GitHub Actions cron is UTC-only — does not observe DST. Adjust the hour here
+  # if you'd rather lock to a specific Central time year-round.
+  schedule:
+    - cron: "0 14 * * 0"
+
+  # Manual trigger from the GitHub Actions UI. Use this for the first dry-run
+  # and any time you want to send off-schedule.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run (preview without sending or advancing weeks)"
+        type: boolean
+        default: true
+      force:
+        description: "Force-advance even if last_advanced_at is within 6 days"
+        type: boolean
+        default: false
+
+# Prevent two scheduled + manual runs from racing each other against the same DB.
+concurrency:
+  group: sunday-drip
+  cancel-in-progress: false
+
+jobs:
+  run-drip:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL:          ${{ secrets.DATABASE_URL }}
+      AWS_REGION:            us-east-1
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      # PIXEL_SECRET is used for HMAC-signing referral codes; must match the
+      # value configured in the windows-by-burkhardt server so /r/<code>
+      # decodes back to the same lead_id at click time.
+      PIXEL_SECRET:          ${{ secrets.PIXEL_SECRET }}
+      UNSUBSCRIBE_SECRET:    ${{ secrets.UNSUBSCRIBE_SECRET }}
+      SES_CONFIG_SET:        apex-campaigns
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install psycopg2-binary keyring
+
+      - name: Show what's scheduled to send
+        run: |
+          python - <<'EOF'
+          from db import get_conn
+          conn = get_conn()
+          rows = conn.execute("""
+              SELECT id, active, weeks, current_week, last_advanced_at,
+                     (NOW() - COALESCE(last_advanced_at, NOW() - INTERVAL '99 days')) AS since_last,
+                     (SELECT COUNT(*) FROM campaign_sends cs
+                       WHERE cs.campaign_id = c.id) AS enrolled
+                FROM campaigns c
+               WHERE active = TRUE
+                 AND enrollment_query IS NOT NULL
+                 AND current_week < weeks
+               ORDER BY id
+          """).fetchall()
+          if not rows:
+              print("  (no active cohort campaigns are due)")
+          for r in rows:
+              print(f"  {r['id']:30s}  week {r['current_week']}/{r['weeks']}  enrolled={r['enrolled']:,}  since_last={r['since_last']}")
+          conn.close()
+          EOF
+
+      - name: Run drip (dry-run / scheduled / forced)
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+            if [ "${{ inputs.force }}"   = "true" ]; then ARGS="$ARGS --force"; fi
+          fi
+          echo "Invoking: python drip.py run-all $ARGS"
+          python drip.py run-all $ARGS
