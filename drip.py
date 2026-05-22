@@ -9,6 +9,8 @@ Usage:
 This creates drip enrollment rows and sends scheduled drip steps from campaign config.
 """
 
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -29,6 +31,37 @@ load_dotenv()
 
 SHORTLINK_HOST = os.getenv("SHORTLINK_HOST", "https://windowsbyburkhardt.com")
 SHORTLINK_TARGET_FRAGMENT = "#schedule"
+
+
+_BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _base36(n: int) -> str:
+    if n == 0:
+        return "0"
+    out: list[str] = []
+    while n:
+        n, r = divmod(n, 36)
+        out.append(_BASE36[r])
+    return "".join(reversed(out))
+
+
+def _referral_code(lead_id: int) -> str:
+    """Per-lead referral code for the sold-customer drip. Decoded by the website
+    at /r/:code (services/referralService.js). Format: base36(id) + 6 hex chars of
+    HMAC-SHA256("ref:" + id, secret). Secret resolution mirrors the Node side so
+    the same code round-trips back to the same lead_id."""
+    if lead_id is None or int(lead_id) <= 0:
+        raise ValueError("lead_id must be a positive integer")
+    secret = os.getenv("REFERRAL_SECRET",
+              os.getenv("PIXEL_SECRET",
+              os.getenv("UNSUBSCRIBE_SECRET", "change-me"))).encode("utf-8")
+    mac = hmac.new(secret, f"ref:{int(lead_id)}".encode("utf-8"), hashlib.sha256).hexdigest()[:6]
+    return f"{_base36(int(lead_id))}{mac}"
+
+
+def _referral_url(lead_id: int) -> str:
+    return f"{SHORTLINK_HOST}/r/{_referral_code(lead_id)}"
 
 
 def _load_campaign(campaign: str):
@@ -429,6 +462,14 @@ def run_all(dry_run: bool, force: bool):
             if camp.get("short_slug"):
                 vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   next_week)}"
                 vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', next_week)}"
+            if config.get("referral_link"):
+                # Referral campaigns: every recipient gets a per-lead /r/<code> URL
+                # so the website can credit the right referrer when a referral converts.
+                # Pre-bake utm_content=week-N so GA4 can attribute clicks to a specific
+                # drip step — _add_utm will merge the rest (source/medium/campaign).
+                ref_url = f"{_referral_url(r['lead_id'])}?utm_content=week-{next_week}"
+                vars["short_url_email"] = ref_url
+                vars["short_url_sms"]   = ref_url
             subject, html, txt, sms = _render_step_templates(step, config, env, vars, camp_id, r["lead_id"], next_week)
             reply_to = config.get("reply_to", config["from_email"])
             headers = _prepare_headers(reply_to, r["lead_id"], vars["email"] or "")
@@ -685,6 +726,10 @@ def test_send(campaign: str, week: int, channel: str | None, lead_ids: str | Non
         if camp.get("short_slug"):
             vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   week)}"
             vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', week)}"
+        if config.get("referral_link"):
+            ref_url = f"{_referral_url(r['id'])}?utm_content=week-{week}"
+            vars["short_url_email"] = ref_url
+            vars["short_url_sms"]   = ref_url
         subject, html, txt, sms = _render_step_templates(step, config, env, vars, camp["id"], r["id"], week)
         reply_to = config.get("reply_to", config["from_email"])
         headers = _prepare_headers(reply_to, r["id"], vars["email"] or "")

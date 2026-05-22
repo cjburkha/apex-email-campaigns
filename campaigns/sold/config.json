@@ -1,42 +1,39 @@
 {
   "id": "sold-may-2026",
-  "name": "Sold Customer Outreach",
-  "subject": "Quick note from Apex Energy Solutions",
-  "from_name": "Windows By Burkhardt",
+  "name": "Sold Customer Referral Drive",
+  "subject": "Earn $500 for every friend you refer",
+  "from_name": "Chris Burkhardt | Apex Energy Solutions",
   "from_email": "chris@windowsbyburkhardt.com",
   "reply_to": "chris@windowsbyburkhardt.com",
   "utm_source": "email",
   "utm_medium": "email",
-  "utm_campaign": "sold-may-2026",
+  "utm_campaign": "sold-referral-may-2026",
   "default_delay_days": 7,
+  "referral_link": true,
   "drip_steps": [
     {
       "name": "Week 1",
-      "channel": "both",
-      "subject": "Hope you love the new windows, {{ first_name }}",
-      "template_html": "emails/email-1.html",
-      "template_sms": "sms/sms-1.txt"
+      "channel": "email",
+      "subject": "{{ first_name }}, earn $500 for every friend you refer",
+      "template_html": "emails/email-1.html"
     },
     {
       "name": "Week 2",
-      "channel": "both",
-      "subject": "{{ first_name }}, who do you know?",
-      "template_html": "emails/email-2.html",
-      "template_sms": "sms/sms-2.txt"
+      "channel": "email",
+      "subject": "{{ first_name }}, who do you know with drafty windows?",
+      "template_html": "emails/email-2.html"
     },
     {
       "name": "Week 3",
-      "channel": "both",
-      "subject": "Ready for the next phase, {{ first_name }}?",
-      "template_html": "emails/email-3.html",
-      "template_sms": "sms/sms-3.txt"
+      "channel": "email",
+      "subject": "{{ first_name }}, one referral = $500. Two = $1,000.",
+      "template_html": "emails/email-3.html"
     },
     {
       "name": "Week 4",
-      "channel": "both",
-      "subject": "Just saying hello, {{ first_name }}",
-      "template_html": "emails/email-4.html",
-      "template_sms": "sms/sms-4.txt"
+      "channel": "email",
+      "subject": "{{ first_name }}, one last note on the referral offer",
+      "template_html": "emails/email-4.html"
     }
   ]
 }
