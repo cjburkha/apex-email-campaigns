@@ -33,7 +33,9 @@ concurrency:
 jobs:
   run-drip:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    # 120 min covers ~20K leads at ~10/sec across all active cohorts in one
+    # sequential run. SES production rate limit is 14/sec; drip.py paces at ~10/sec.
+    timeout-minutes: 120
 
     env:
       DATABASE_URL:          ${{ secrets.DATABASE_URL }}
