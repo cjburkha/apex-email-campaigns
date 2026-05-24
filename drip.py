@@ -514,7 +514,18 @@ def run_all(dry_run: bool, force: bool):
             # for the SES burst bucket and avoid hammering the SMTP boundary.
             time.sleep(0.1)
 
-        # Advance the cohort
+        # Advance the cohort.
+        # The send loop above can take 10+ min on a large cohort. RDS / TCP
+        # keepalive kills idle Postgres sockets in that window — so before the
+        # UPDATE we close the (probably-dead) connection and open a fresh one.
+        # Without this, large cohorts crash after sending with
+        # `psycopg2.OperationalError: SSL SYSCALL error: EOF detected`, leaving
+        # current_week un-advanced and risking double-sends next cron.
+        try:
+            conn.close()
+        except Exception:
+            pass
+        conn = get_conn()
         conn.execute(
             "UPDATE campaigns SET current_week = %s, last_advanced_at = NOW() WHERE id = %s",
             (next_week, camp_id),
