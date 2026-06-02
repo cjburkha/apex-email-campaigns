@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template, TemplateNotFound
 
 from db import get_conn, init_db
-from send import _add_utm, _add_utm_text, _normalize_phone, _make_unsubscribe_token, _unsubscribe_url, _send_sms, _pixel_html, _html_to_text
+from send import _add_utm, _add_utm_text, _normalize_phone, _make_unsubscribe_token, _unsubscribe_url, _send_sms, _pixel_html, _click_url, _html_to_text
 
 load_dotenv()
 
@@ -463,7 +463,10 @@ def run_all(dry_run: bool, force: bool):
             )
             if camp.get("short_slug"):
                 vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   next_week)}"
-                vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', next_week)}"
+                # Email CTA is a per-lead /t/c link so we capture WHO clicks
+                # (campaign_click_events); the website redirects to the same
+                # campaign/week destination. SMS stays on the aggregate slug.
+                vars["short_url_email"] = _click_url(camp_id, r["lead_id"], next_week)
             if config.get("referral_link"):
                 # Referral campaigns: every recipient gets a per-lead /r/<code> URL
                 # so the website can credit the right referrer when a referral converts.
@@ -740,7 +743,8 @@ def test_send(campaign: str, week: int, channel: str | None, lead_ids: str | Non
         )
         if camp.get("short_slug"):
             vars["short_url_sms"]   = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'sms',   week)}"
-            vars["short_url_email"] = f"{SHORTLINK_HOST}/{_slug_for(camp['short_slug'], 'email', week)}"
+            # Per-lead /t/c click link (see run-all path); SMS stays aggregate.
+            vars["short_url_email"] = _click_url(camp["id"], r["id"], week)
         if config.get("referral_link"):
             ref_url = f"{_referral_url(r['id'])}?utm_content=week-{week}"
             vars["short_url_email"] = ref_url
