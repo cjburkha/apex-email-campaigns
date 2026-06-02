@@ -88,6 +88,19 @@ jobs:
           conn.close()
           EOF
 
+      # Drain SES bounce/complaint events and flag leads.bounced_at BEFORE sending,
+      # so this week's drip excludes everyone who has bounced since the last run
+      # (including delayed bounces from last week that trickled in during the week).
+      # Matches events to leads by recipient email; deletes processed messages.
+      - name: Sync bounce events (suppress before sending)
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          echo "Invoking: python sync_events.py $ARGS"
+          python sync_events.py $ARGS
+
       - name: Run drip (dry-run / scheduled / forced)
         run: |
           ARGS=""
