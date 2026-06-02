@@ -247,6 +247,7 @@ def run(campaign: str, limit: int, dry_run: bool):
         WHERE cs.campaign_id = %s
           AND cs.next_send_at <= NOW()
           AND l.unsubscribed_at IS NULL
+          AND l.bounced_at IS NULL
           AND cs.status != 'failed'
         ORDER BY cs.next_send_at
         LIMIT %s
@@ -437,6 +438,7 @@ def run_all(dry_run: bool, force: bool):
               JOIN leads l ON l.id = cs.lead_id
              WHERE cs.campaign_id = %s
                AND l.unsubscribed_at IS NULL
+               AND l.bounced_at IS NULL
                AND l.test_lead = 0
             """,
             (camp_id,),
