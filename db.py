@@ -208,6 +208,17 @@ def init_db() -> None:
         ALTER TABLE leads ADD COLUMN IF NOT EXISTS bounced_at TIMESTAMPTZ;
         ALTER TABLE leads ADD COLUMN IF NOT EXISTS bounce_type TEXT;
 
+        CREATE TABLE IF NOT EXISTS campaign_click_events (
+            id            SERIAL      PRIMARY KEY,
+            campaign_id   TEXT        NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+            lead_id       INTEGER     NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+            week          INTEGER,
+            clicked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_click_at TIMESTAMPTZ,
+            hits          INTEGER     NOT NULL DEFAULT 1,
+            UNIQUE (campaign_id, lead_id, week)
+        );
+
         ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_message_id TEXT;
         ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMPTZ;
         ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_delivered_at TIMESTAMPTZ;

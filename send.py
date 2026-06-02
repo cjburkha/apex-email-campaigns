@@ -123,6 +123,14 @@ def _pixel_html(campaign_id: str, lead_id: int, week: int) -> str:
     )
 
 
+def _click_url(campaign_id: str, lead_id: int, week: int) -> str:
+    """Per-lead email click URL. Same token scheme as the open pixel; the website
+    /t/c route records who clicked and redirects to the campaign/week destination."""
+    base = os.getenv("PIXEL_BASE_URL", "https://windowsbyburkhardt.com").rstrip("/")
+    tok = _make_pixel_token(campaign_id, lead_id, week)
+    return f"{base}/t/c/{campaign_id}/{lead_id}/{week}/{tok}"
+
+
 # ── HTML → plain text fallback ───────────────────────────────────────────────
 # Used to auto-generate a text/plain part for SES multipart/alternative when a
 # campaign step ships only an .html template. Tuned for the table-based email
