@@ -205,6 +205,8 @@ def init_db() -> None:
             ON campaign_sends(campaign_id, status)
 
         ALTER TABLE leads ADD COLUMN IF NOT EXISTS unsubscribed_at TIMESTAMPTZ;
+        ALTER TABLE leads ADD COLUMN IF NOT EXISTS bounced_at TIMESTAMPTZ;
+        ALTER TABLE leads ADD COLUMN IF NOT EXISTS bounce_type TEXT;
 
         ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_message_id TEXT;
         ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS sms_sent_at TIMESTAMPTZ;

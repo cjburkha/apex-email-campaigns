@@ -355,6 +355,7 @@ def send(campaign: str, sql_query: str, dry_run: bool, rate: float, limit: int):
         FROM campaign_sends cs
         JOIN leads l ON l.id = cs.lead_id
         WHERE cs.campaign_id = %s AND cs.status = 'queued' AND l.unsubscribed_at IS NULL
+              AND l.bounced_at IS NULL
         """,
         (campaign_id,)
     ).fetchall()
