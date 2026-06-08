@@ -103,6 +103,14 @@ def _render_step_templates(step: dict, config: dict, env: Environment, vars: dic
     vars.setdefault("short_url_email", f"{SHORTLINK_HOST}/#schedule")
     # Backwards-compat alias for any template that still uses {{ short_url }}.
     vars.setdefault("short_url", vars["short_url_sms"])
+    # Per-lead unsubscribe link for the email body (templates use {{ unsubscribe_url }}).
+    # Same signed token as the List-Unsubscribe header; the website /unsubscribe
+    # route verifies it and sets leads.unsubscribed_at.
+    if lead_id is not None and vars.get("email"):
+        vars.setdefault(
+            "unsubscribe_url",
+            _unsubscribe_url(lead_id, _make_unsubscribe_token(lead_id, vars["email"])),
+        )
 
     if html_file:
         try:
