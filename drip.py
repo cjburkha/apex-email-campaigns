@@ -459,6 +459,12 @@ def run_all(dry_run: bool, force: bool):
             continue
 
         sent = failed = 0
+        # Collected during the loop, written in one batch after the reconnect
+        # below — so campaign_sends actually records cohort sends (sent_at was
+        # never set for cohort campaigns before 2026-07-15, which is why
+        # "when did we last send?" was unanswerable from the DB).
+        sent_ids: list[int] = []
+        failed_updates: list[tuple[str, int]] = []
         for r in leads:
             vars = dict(
                 first_name=r["first_name"] or "",
@@ -520,8 +526,10 @@ def run_all(dry_run: bool, force: bool):
 
             if email_ok or sms_ok:
                 sent += 1
+                sent_ids.append(r["send_id"])
             else:
                 failed += 1
+                failed_updates.append(("; ".join(errors)[:500], r["send_id"]))
 
             # SES production account allows 14/sec; we pace at ~10/sec to leave headroom
             # for the SES burst bucket and avoid hammering the SMTP boundary.
@@ -539,6 +547,19 @@ def run_all(dry_run: bool, force: bool):
         except Exception:
             pass
         conn = get_conn()
+        # Record what actually went out. drip_step tracks the latest week sent;
+        # bounced/complained rows never reach this loop (their leads are
+        # filtered out above), so we only ever flip 'queued'/'sent' rows.
+        if sent_ids:
+            conn.execute(
+                "UPDATE campaign_sends SET status='sent', sent_at=NOW(), drip_step=%s WHERE id = ANY(%s)",
+                (next_week, sent_ids),
+            )
+        for reason, send_id in failed_updates:
+            conn.execute(
+                "UPDATE campaign_sends SET status='failed', failed_reason=%s WHERE id=%s",
+                (reason, send_id),
+            )
         conn.execute(
             "UPDATE campaigns SET current_week = %s, last_advanced_at = NOW() WHERE id = %s",
             (next_week, camp_id),
