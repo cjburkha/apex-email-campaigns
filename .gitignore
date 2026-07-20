@@ -1,6 +1,10 @@
 .env
 db/
 data/*.csv
+data/*.xlsx
+*.xlsx
+~$*
+*.csv
 __pycache__/
 *.pyc
 *.pyo
