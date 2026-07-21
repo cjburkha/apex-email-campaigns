@@ -2,7 +2,7 @@
 
 **A production Revenue Operations stack — CRM data layer, multi-channel lifecycle engine, attribution, and deliverability — built solo for a regional window & home-improvement company.**
 
-> 📊 **Portfolio case study:** https://claude.ai/code/artifact/1e73c957-5fd3-4e69-a610-0faa1dbed739
+> 📊 **Portfolio case study:** https://cjburkha.github.io
 > Companion analytics repo (funnel & sold-dollar analysis): `apex-sales-intel`
 
 This repo is the **activation and data-hygiene half** of a go-to-market stack. It takes leads out of the CRM warehouse, runs cohort-based email + SMS lifecycle campaigns against them, tracks per-lead engagement, and keeps the contact database clean and compliant — the kind of system a RevOps team owns.
