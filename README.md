@@ -52,6 +52,14 @@ python drip.py run --campaign window-inspection
 1. Copy `.env.example` → `.env`; set AWS credentials, `DATABASE_URL`, and the Pinpoint/unsubscribe vars.
 2. `python setup_aws.py` once, then `python db.py` to apply schema.
 
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+Unit tests cover the helpers that decide whether a send is attributable, suppressible, and deliverable: UTM tagging (including the shortlink-slug carve-out that would otherwise double-count attribution), the HMAC tokens behind unsubscribe / open-pixel / click tracking and the referral code, phone normalization to E.164, SES message-tag sanitizing, and the HTML→plain-text fallback. No AWS calls and no database — they run in CI on every push ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
+
 ## A note on data
 
 **No customer data lives in this repo.** All PII (lead lists, sold tickets, exports) stays in the Postgres database and gitignored local files — never committed. Only code, schema, and templates are tracked.
