@@ -1,5 +1,5 @@
 -- Schema migration for drip campaigns and SMS support
--- Run as: psql -h wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com -U wbbadmin -d apex -f schema-migration.sql
+-- Run as: psql -h "$DATABASE_HOST" -U "$DATABASE_ADMIN_USER" -d apex -f schema-migration.sql
 -- Contact: chris@windowsbyburkhardt.com
 
 BEGIN TRANSACTION;
