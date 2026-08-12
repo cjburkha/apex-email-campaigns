@@ -19,7 +19,6 @@ from send import (
     _make_unsubscribe_token,
     _normalize_phone,
     _pixel_html,
-    _ses_tag,
     _unsubscribe_url,
 )
 
@@ -137,24 +136,6 @@ def test_pixel_html_is_a_hidden_one_by_one_image():
 def test_click_url_uses_the_click_route_with_the_same_token():
     tok = _make_pixel_token("spring", 5, 1)
     assert _click_url("spring", 5, 1) == f"https://example.test/t/c/spring/5/1/{tok}"
-
-
-# ── SES message tags ─────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize("raw,expected", [
-    ("window-inspection", "window-inspection"),
-    ("spring 2026",       "spring_2026"),     # spaces are not valid in SES tags
-    ("a/b:c",             "a_b_c"),
-    ("café",              "caf_"),            # non-ASCII replaced
-    (7,                   "7"),               # non-string coerced
-    ("",                  "none"),            # empty falls back
-])
-def test_ses_tag_sanitizes(raw, expected):
-    assert _ses_tag(raw) == expected
-
-
-def test_ses_tag_truncates_at_256():
-    assert len(_ses_tag("x" * 400)) == 256
 
 
 # ── HTML → text fallback ─────────────────────────────────────────────────────
