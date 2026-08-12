@@ -33,7 +33,7 @@ echo "This requires DBA access (wbbadmin user)"
 echo ""
 echo "Ask your DBA to run:"
 echo ""
-echo "  psql -h wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com \\"
+echo "  psql -h \$DATABASE_HOST \\"
 echo "       -U wbbadmin \\"
 echo "       -d apex \\"
 echo "       -f schema-migration.sql"
@@ -152,7 +152,7 @@ UNSUBSCRIBE_SECRET=$(openssl rand -hex 16)
 UNSUBSCRIBE_BASE_URL=https://windowsbyburkhardt.com/unsubscribe
 
 # Database (from keychain)
-DATABASE_URL=postgresql://cburkhardt@wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com:5432/apex?sslmode=require
+DATABASE_URL=postgresql://${DB_USER}@${DATABASE_HOST}:5432/apex?sslmode=require
 EOF
 
 echo "✅ Configuration saved to: $ROOT_DIR/.env.local"
@@ -224,6 +224,6 @@ echo ""
 echo "Summary:"
 echo "  Email:     chris@windowsbyburkhardt.com (SES)"
 echo "  SMS:       +14145501960 (Pinpoint, pending 10DLC approval)"
-echo "  Database:  wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com/apex"
+echo "  Database:  \$DATABASE_HOST/apex"
 echo ""
 echo "See AWS-SETUP.md for detailed documentation"

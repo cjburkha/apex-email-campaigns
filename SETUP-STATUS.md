@@ -51,7 +51,7 @@
 **Action**: Ask DBA to run schema-migration.sql
 
 ```bash
-psql -h wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com \
+psql -h "$DATABASE_HOST" \
      -U wbbadmin \
      -d apex \
      -f schema-migration.sql
@@ -174,7 +174,7 @@ python3 sync_events.py --watch
 ### Environment Variables (.env)
 ```bash
 # AWS Credentials (already set)
-AWS_ACCESS_KEY_ID=AKIAZXTAJ4PNOZZNBPD3...
+AWS_ACCESS_KEY_ID=<your-access-key-id>
 AWS_SECRET_ACCESS_KEY=***
 AWS_REGION=us-east-1
 

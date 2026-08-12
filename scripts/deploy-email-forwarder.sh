@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROFILE="wbb-admin"
 REGION="us-east-1"
-ACCOUNT="669143131098"
+ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 ZONE_ID="Z0069181X6QIMOMW5RHO"
 
 BUCKET="wbb-inbound-email"

@@ -6,7 +6,7 @@ This document outlines the AWS resources needed for the apex-email-campaigns dri
 ## Architecture
 - **Email**: AWS SES (Simple Email Service) - `chris@windowsbyburkhardt.com`
 - **SMS**: AWS Pinpoint - Phone: `+14145501960`
-- **Database**: PostgreSQL on RDS - `wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com`
+- **Database**: PostgreSQL on RDS - host set via `DATABASE_HOST`
 - **Event Tracking**: SNS → SQS (bounces, complaints, opens, clicks)
 
 ---
@@ -17,7 +17,7 @@ This document outlines the AWS resources needed for the apex-email-campaigns dri
 Run the schema migration as the `wbbadmin` user:
 
 ```bash
-psql -h wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com \
+psql -h "$DATABASE_HOST" \
      -U wbbadmin \
      -d apex \
      -f schema-migration.sql

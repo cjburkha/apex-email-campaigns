@@ -24,11 +24,17 @@ load_dotenv()
 
 _KEYRING_SERVICE = "apex-campaigns"
 _KEYRING_KEY     = "DATABASE_URL"
-_DB_HOST = "wbb-prod.c81qkua4c3e2.us-east-1.rds.amazonaws.com"
-_DB_NAME = "apex"
+# Host/name come from the environment — no infrastructure identifiers in source.
+_DB_HOST = os.getenv("DATABASE_HOST", "")
+_DB_NAME = os.getenv("DATABASE_NAME", "apex")
 
 
 def _build_url(username: str, password: str) -> str:
+    if not _DB_HOST:
+        raise RuntimeError(
+            "DATABASE_HOST is not set. Add it to .env (see .env.example), "
+            "or set DATABASE_URL directly."
+        )
     return f"postgresql://{username}:{password}@{_DB_HOST}:5432/{_DB_NAME}?sslmode=require"
 
 

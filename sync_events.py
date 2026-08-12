@@ -35,7 +35,7 @@ from db import get_conn, init_db
 
 load_dotenv()
 
-_QUEUE_DEFAULT = "https://sqs.us-east-1.amazonaws.com/669143131098/apex-campaigns-events"
+_QUEUE_DEFAULT = os.getenv("SES_EVENTS_QUEUE_URL", "")
 
 
 def _extract(event):
@@ -140,7 +140,9 @@ def _process_batch(sqs, queue_url, conn, dry_run):
 def sync_events(watch, interval, dry_run, max_batches):
     """Drain SES events from SQS and suppress bounced / complained leads (match by email)."""
     init_db()
-    queue_url = os.getenv("SES_EVENTS_QUEUE_URL", _QUEUE_DEFAULT)
+    queue_url = _QUEUE_DEFAULT
+    if not queue_url:
+        raise click.ClickException("SES_EVENTS_QUEUE_URL is not set — add it to .env (see .env.example).")
     sqs = boto3.client("sqs", region_name=os.getenv("AWS_REGION", "us-east-1"))
     conn = get_conn()
 
